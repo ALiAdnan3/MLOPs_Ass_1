@@ -483,6 +483,8 @@ export interface MaterialDef {
   procedural?: { kind: ProceduralKind; seed: number; colors: string[]; params?: Record<string, number> }
   /** Uploaded image asset id (base color). */
   assetId?: ID
+  /** The photo as uploaded, kept so maps can be regenerated. */
+  originalAssetId?: ID
   /** Generated PBR maps (asset ids). */
   maps?: { normal?: ID; roughness?: ID; height?: ID }
   /** Real-world size of one texture repeat (m). */

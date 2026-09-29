@@ -1,0 +1,86 @@
+/* HomeForge AI design tokens — see docs/DESIGN_SYSTEM.md */
+:root,
+:root[data-theme='dark'] {
+  --bg: #1a1c1f;
+  --canvas: #1a1c1f;
+  --panel: #212428;
+  --panel-2: #1e2124;
+  --raised: #2a2e33;
+  --raised-2: #32373d;
+  --line: #343a40;
+  --line-soft: #2a2f34;
+  --text: #e6e8ea;
+  --text-2: #a3aab2;
+  --text-3: #6e767f;
+  --tape: #f0b823;
+  --tape-ink: #1b1f24;
+  --tape-soft: rgba(240, 184, 35, 0.14);
+  --chalk: #4da8da;
+  --chalk-soft: rgba(77, 168, 218, 0.14);
+  --danger: #e5534b;
+  --danger-soft: rgba(229, 83, 75, 0.14);
+  --warn: #d9a441;
+  --ok: #46b37b;
+  --ok-soft: rgba(70, 179, 123, 0.14);
+  --shadow-float: 0 12px 32px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --scrim: rgba(10, 12, 14, 0.62);
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --bg: #eceef1;
+  --canvas: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f7f8f9;
+  --raised: #f2f3f5;
+  --raised-2: #e7e9ec;
+  --line: #d5d9de;
+  --line-soft: #e6e9ec;
+  --text: #1b1f24;
+  --text-2: #56606b;
+  --text-3: #8a939c;
+  --tape: #d99a00;
+  --tape-ink: #1b1f24;
+  --tape-soft: rgba(217, 154, 0, 0.14);
+  --chalk: #1f7fb5;
+  --chalk-soft: rgba(31, 127, 181, 0.12);
+  --danger: #c9372c;
+  --danger-soft: rgba(201, 55, 44, 0.1);
+  --warn: #b27b00;
+  --ok: #23875a;
+  --ok-soft: rgba(35, 135, 90, 0.1);
+  --shadow-float: 0 12px 32px rgba(20, 28, 36, 0.16), 0 0 0 1px rgba(20, 28, 36, 0.06);
+  --scrim: rgba(40, 46, 54, 0.35);
+  color-scheme: light;
+}
+
+:root {
+  --font: 'Archivo Variable', Archivo, 'Segoe UI', system-ui, sans-serif;
+  --r-sm: 3px;
+  --r: 4px;
+  --r-lg: 8px;
+  --titlebar: 40px;
+  --statusbar: 34px;
+  --toolbar: 48px;
+  --inspector: 312px;
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-15: 15px;
+  --fs-18: 18px;
+  --fs-24: 24px;
+  --fs-36: 36px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ease: steps(1);
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

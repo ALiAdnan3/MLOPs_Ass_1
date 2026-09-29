@@ -32,6 +32,9 @@ export interface PlanOptions {
 
 const S = (color: string, width: number, extra: Partial<Stroke> = {}): Stroke => ({ color, width, ...extra })
 
+/** Wall poché union is the costliest part of a redraw; cache it per walls/openings identity. */
+const pocheCache = new WeakMap<object, { openings: object; merged: { outer: Vec2[]; holes: Vec2[][] }[] }>()
+
 /** Draw one floor (plus site on the ground floor) into any DrawContext. */
 export function drawPlan(dc: DrawContext, house: HouseState, floor: Floor, o: PlanOptions) {
   const t = o.theme
@@ -108,7 +111,14 @@ export function drawPlan(dc: DrawContext, house: HouseState, floor: Floor, o: Pl
         else solid.push(rect)
       }
     }
-    const merged = o.lite ? solid.map((outer) => ({ outer, holes: [] as Vec2[][] })) : unionPolys(solid)
+    const cached = pocheCache.get(floor.walls)
+    let merged: { outer: Vec2[]; holes: Vec2[][] }[]
+    if (cached && cached.openings === floor.openings) merged = cached.merged
+    else if (o.lite) merged = solid.map((outer) => ({ outer, holes: [] as Vec2[][] }))
+    else {
+      merged = unionPolys(solid)
+      pocheCache.set(floor.walls, { openings: floor.openings, merged })
+    }
     for (const m of merged) dc.polygon(m.outer, { color: t.wallFill }, S(t.wallStroke, 0.6), m.holes)
     for (const p of partitions) {
       dc.polygon(p, { color: t.paper }, S(t.wallFill, 0.8))
@@ -566,7 +576,7 @@ export function drawFurniture(dc: DrawContext, f: FurnitureItem, t: PlanTheme) {
   }
 }
 
-function drawElectrical(dc: DrawContext, p: { kind: string; p: Vec2; rot: number; label?: string }, t: PlanTheme) {
+export function drawElectrical(dc: DrawContext, p: { kind: string; p: Vec2; rot: number; label?: string }, t: PlanTheme) {
   const s = S(t.electrical, 0.7)
   switch (p.kind) {
     case 'switch':
@@ -601,7 +611,7 @@ function drawElectrical(dc: DrawContext, p: { kind: string; p: Vec2; rot: number
   }
 }
 
-function drawLight(dc: DrawContext, p: { kind: string; p: Vec2 }, t: PlanTheme, lux: boolean) {
+export function drawLight(dc: DrawContext, p: { kind: string; p: Vec2 }, t: PlanTheme, lux: boolean) {
   const s = S(t.lighting, 0.7)
   if (lux) dc.circle(p.p, p.kind === 'chandelier' ? 2.2 : 1.1, { color: t.lighting, opacity: 0.07 }, null)
   switch (p.kind) {

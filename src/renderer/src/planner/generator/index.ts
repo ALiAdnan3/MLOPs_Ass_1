@@ -54,7 +54,12 @@ export interface GenerateOptions {
   settings: Pick<ProjectSettings, 'wallThickness' | 'floorHeight' | 'plinthHeight'>
   seed?: number
   iterations?: number
+  /** Progress through the §55 pipeline. */
+  onStage?: (stage: PipelineStage) => void
 }
+
+export const PIPELINE = ['Requirements', 'Constraints', 'Space allocation', 'Room graph', 'Floor plans', 'Structure', 'Openings', 'Validation', 'Explanation'] as const
+export type PipelineStage = (typeof PIPELINE)[number]
 
 export interface GenerationError {
   what: string
@@ -86,7 +91,10 @@ export function generateDesign(req: Requirements, plot: Plot, strategy: DesignSt
     })
   }
 
+  const stage = (x: PipelineStage) => opts.onStage?.(x)
+  stage('Requirements')
   // ── constraint engine: envelope ──────────────────────────────────────────
+  stage('Constraints')
   const env = planEnvelope(plot, req, strategy)
   warnings.push(...env.warnings)
   const levels = levelsFor(req)
@@ -156,6 +164,7 @@ export function generateDesign(req: Requirements, plot: Plot, strategy: DesignSt
   }
 
   // ── space allocation: whole-house search over column templates ───────────
+  stage('Space allocation')
   // Column widths are shared by every floor (walls stack structurally), so each template is laid
   // out on all floors and scored by the total cost; the best template is refined further.
   const frontsFor = (lv: number) => (lv === 0 ? groundFronts : lv > 0 ? upperFronts : undefined)
@@ -252,7 +261,9 @@ export function generateDesign(req: Requirements, plot: Plot, strategy: DesignSt
       }
     }
   }
+  stage('Room graph')
   const final = layoutHouse(bestXs, 1, 1)
+  stage('Floor plans')
   const layouts = final.layouts
   const columnXs = bestXs
   notes.push(...final.notes)
@@ -356,6 +367,7 @@ export function generateDesign(req: Requirements, plot: Plot, strategy: DesignSt
   }
 
   // ── walls ────────────────────────────────────────────────────────────────
+  stage('Structure')
   const openPlan = strategy === 'luxury-open' || req.preferences.openSpace >= 75
   for (const f of floors) {
     const res = rebuildWalls(f, opts.settings, ids)
@@ -380,6 +392,7 @@ export function generateDesign(req: Requirements, plot: Plot, strategy: DesignSt
   }
 
   // ── doors & windows ──────────────────────────────────────────────────────
+  stage('Openings')
   let mainDoorPos: { x: number; y: number } | undefined
   let patioAnchor: { x0: number; x1: number } | undefined
   for (const f of floors) {
@@ -600,10 +613,12 @@ export function generateDesign(req: Requirements, plot: Plot, strategy: DesignSt
   applySmartLabels(house)
 
   // ── validation, scores, explanation ─────────────────────────────────────
+  stage('Validation')
   const issues = validateHouse(house)
   for (const i of issues.filter((x) => x.severity === 'error')) warnings.push(i.message)
   const stats = designStats(house)
   const scores = scoreDesign(house, req, layouts, fp, env.plotRect)
+  stage('Explanation')
   const explanation = explain(house, req, strategy, fp, notes, { back: party.back === undefined, left: party.left === undefined, right: party.right === undefined })
   return {
     id: ids('dsn'),

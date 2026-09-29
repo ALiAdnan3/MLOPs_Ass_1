@@ -1,4 +1,5 @@
 import type { Floor, Opening, Project, ProjectSettings, Room, RoomType, Vec2, Wall } from '../core/model/types'
+import { deepClone } from '../core/clone'
 import { uid, type IdFactory } from '../core/model/ids'
 import { bbox, isAxisRect, rectPoly, removeCollinear, unionPolys, intersectPolys, area, pointInPolygon, type Rect } from '../core/geometry/polygon'
 import { rebuildWalls, lineOverlap, effectiveKind } from './walls'
@@ -256,7 +257,7 @@ export function splitRoom(floor: Floor, roomId: string, axis: 'x' | 'y', at: num
     const pb = largestPiece(room.polygon, halfB)
     if (!pa || !pb) return null
     room.polygon = pa
-    const nr: Room = { ...structuredClone(room), id: uid('rm'), polygon: pb, name: `${room.name} (2)`, autoName: room.autoName }
+    const nr: Room = { ...deepClone(room), id: uid('rm'), polygon: pb, name: `${room.name} (2)`, autoName: room.autoName }
     floor.rooms.push(nr)
     refreshFloor(floor, settings)
     return nr
@@ -264,7 +265,7 @@ export function splitRoom(floor: Floor, roomId: string, axis: 'x' | 'y', at: num
   const r1: Rect = axis === 'x' ? { x: b.x, y: b.y, w: at - b.x, h: b.h } : { x: b.x, y: b.y, w: b.w, h: at - b.y }
   const r2: Rect = axis === 'x' ? { x: at, y: b.y, w: b.x + b.w - at, h: b.h } : { x: b.x, y: at, w: b.w, h: b.y + b.h - at }
   room.polygon = rectPoly(r1)
-  const nr: Room = { ...structuredClone(room), id: uid('rm'), polygon: rectPoly(r2), name: room.autoName ? room.name : `${room.name} (2)` }
+  const nr: Room = { ...deepClone(room), id: uid('rm'), polygon: rectPoly(r2), name: room.autoName ? room.name : `${room.name} (2)` }
   delete nr.parentId
   floor.rooms.push(nr)
   refreshFloor(floor, settings)
