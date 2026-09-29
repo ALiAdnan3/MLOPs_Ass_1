@@ -1,0 +1,54 @@
+{
+  "name": "homeforge-ai",
+  "productName": "HomeForge AI",
+  "version": "1.0.0",
+  "description": "HomeForge AI — Design. Generate. Customize. Experience Your Home. AI home architect and 3D house designer for desktop.",
+  "main": "./out/main/index.js",
+  "author": "Ali Adnan",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "web": "vite --config vite.web.config.ts",
+    "web:build": "vite build --config vite.web.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dist": "electron-vite build && electron-builder --win --x64",
+    "dist:dir": "electron-vite build && electron-builder --win --x64 --dir"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.129.0",
+    "@fontsource-variable/archivo": "^5.3.0",
+    "immer": "^11.1.18",
+    "jspdf": "^4.2.1",
+    "jszip": "^3.10.2",
+    "lucide-react": "^1.48.0",
+    "polygon-clipping": "^0.15.7",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "three": "^0.186.1",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.186.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.6",
+    "vitest": "^5.0.2"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "electron-winstaller@5.4.0": true,
+    "electron@44.4.5": true
+  }
+}

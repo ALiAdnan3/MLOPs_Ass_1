@@ -1,0 +1,13 @@
+node_modules/
+out/
+dist/
+release/
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+test-results/
+e2e/screenshots/
+e2e/__pycache__/
+# original spec file (copied to docs/MASTER_PROMPT.md)
+httpsgithub.comALiAdnan3MLOPs_Ass_1.txt
