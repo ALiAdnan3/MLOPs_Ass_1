@@ -2,7 +2,7 @@ import type { Zone } from '../../core/model/types'
 
 /** Plan palettes: dark = lit drafting table, light/print = ink on paper (see docs/DESIGN_SYSTEM.md). */
 export interface PlanTheme {
-  name: 'dark' | 'light' | 'print'
+  name: 'dark' | 'light' | 'print' | 'rendered'
   paper: string
   grid: string
   gridMajor: string
@@ -42,37 +42,37 @@ export interface PlanTheme {
 
 export const DARK_PLAN: PlanTheme = {
   name: 'dark',
-  paper: '#1A1C1F',
-  grid: '#23272B',
-  gridMajor: '#2D3237',
+  paper: '#0B1424',
+  grid: '#132036',
+  gridMajor: '#1B2C47',
   wallFill: '#D6DADF',
   wallStroke: '#E8EBEE',
   partitionFill: '#AEB4BA',
   railing: '#8FA3B3',
   virtual: '#5B636B',
-  room: { public: '#2A2824', semi: '#282823', private: '#232A31', service: '#262728', circulation: '#26282A', outdoor: '#212A22', void: '#1D1F22' },
-  roomStroke: '#3A4046',
+  room: { public: '#18263B', semi: '#172438', private: '#152841', service: '#172336', circulation: '#162235', outdoor: '#14281F', void: '#0E1828' },
+  roomStroke: '#2A3D5A',
   text: '#E6E8EA',
   textMuted: '#98A0A8',
   dim: '#A3AAB2',
   opening: '#C9CED3',
   glass: '#7FB9D8',
   furniture: '#8C949C',
-  furnitureFill: '#2C3136',
+  furnitureFill: '#1D2C44',
   stair: '#B4BBC2',
   column: '#F2F4F6',
   beam: '#6E8196',
-  lawn: '#1F2B20',
+  lawn: '#14291D',
   lawnMark: '#35503A',
-  paving: '#2B2D30',
+  paving: '#1A2639',
   water: '#1E3A48',
   tree: '#2C3F2E',
   treeStroke: '#4F7456',
   plotLine: '#C79A2A',
-  road: '#202225',
-  select: '#F0B823',
-  hover: '#4DA8DA',
-  snap: '#4DA8DA',
+  road: '#111C2E',
+  select: '#3B8CFF',
+  hover: '#38BDF8',
+  snap: '#38BDF8',
   electrical: '#E3A948',
   plumbing: '#4DA8DA',
   plumbingDrain: '#A0785A',
@@ -109,7 +109,7 @@ export const LIGHT_PLAN: PlanTheme = {
   treeStroke: '#7FA170',
   plotLine: '#B07F00',
   road: '#E7E8EA',
-  select: '#D99A00',
+  select: '#1F6FEB',
   hover: '#1F7FB5',
   snap: '#1F7FB5',
   electrical: '#B87400',
@@ -119,3 +119,26 @@ export const LIGHT_PLAN: PlanTheme = {
 }
 
 export const PRINT_PLAN: PlanTheme = { ...LIGHT_PLAN, name: 'print', grid: '#FFFFFF', gridMajor: '#FFFFFF' }
+
+/** Presentation ("rendered") plan: textured floors and lawns underneath, crisp ink on top. */
+export const RENDERED_PLAN: PlanTheme = {
+  ...LIGHT_PLAN,
+  name: 'rendered',
+  paper: '#E7EBF0',
+  grid: '#DCE2EA',
+  gridMajor: '#CFD7E2',
+  wallFill: '#1B2028',
+  wallStroke: '#0E1116',
+  furniture: '#56606C',
+  furnitureFill: '#F7F5F0',
+  lawn: '#7FA35C',
+  lawnMark: '#6A8F4A',
+  tree: '#4E7A35',
+  treeStroke: '#2E4F20',
+  road: '#5B5F66',
+  text: '#11161D',
+  textMuted: '#3E4652',
+  select: '#1F6FEB',
+  hover: '#0E8AC7',
+  snap: '#0E8AC7'
+}

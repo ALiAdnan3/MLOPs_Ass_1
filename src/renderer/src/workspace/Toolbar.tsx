@@ -1,11 +1,14 @@
 import { useState } from 'react'
-import { MousePointer2, BrickWall, Square, DoorOpen, AppWindow, Columns3, Ruler, Type, Armchair, Trees, WavesLadder, Car, Umbrella, Hand, Split, Crosshair, Palette, Box } from 'lucide-react'
+import { MousePointer2, BrickWall, Square, DoorOpen, AppWindow, Columns3, Ruler, Type, Armchair, Trees, WavesLadder, Car, Umbrella, Hand, Split, Crosshair, ChevronDown, FilePlus2, FolderOpen, Save, Share } from 'lucide-react'
 import { useUI, type Tool } from '../state/ui'
-import { IconButton, Seg } from '../ui/primitives'
+import { Seg } from '../ui/primitives'
+import { useProject, commit } from '../state/store'
+import { useWizard } from '../screens/wizardState'
+import { openProjectDialog, saveProject } from '../storage/session'
 import { setMode } from '../app/actions'
 import { CATALOG, FURNITURE_CATEGORIES } from '../core/furniture/catalog'
 import { ROOM_TYPE_GROUPS, spec } from '../core/constraints/rooms'
-import type { RoomType } from '../core/model/types'
+import type { LayerKey, RoomType } from '../core/model/types'
 
 export const StairIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
@@ -13,14 +16,14 @@ export const StairIcon = () => (
   </svg>
 )
 
-const PLAN_TOOLS: { tool: Tool; label: string; icon: JSX.Element; kbd?: string; beginner?: string }[] = [
-  { tool: 'select', label: 'Select, move and resize', icon: <MousePointer2 />, kbd: 'M', beginner: 'Move / resize' },
+const PLAN_TOOLS: { tool: Tool; label: string; short?: string; icon: JSX.Element; kbd?: string; beginner?: string }[] = [
+  { tool: 'select', label: 'Select, move and resize', short: 'Select', icon: <MousePointer2 />, kbd: 'M', beginner: 'Select / move' },
   { tool: 'wall', label: 'Wall', icon: <BrickWall />, kbd: 'W' },
   { tool: 'room', label: 'Room', icon: <Square />, beginner: 'Draw room' },
   { tool: 'door', label: 'Door', icon: <DoorOpen />, beginner: 'Add door' },
   { tool: 'window', label: 'Window', icon: <AppWindow />, beginner: 'Add window' },
   { tool: 'column', label: 'Column', icon: <Columns3 /> },
-  { tool: 'stair', label: 'Stair', icon: <StairIcon /> },
+  { tool: 'stair', label: 'Stairs', icon: <StairIcon /> },
   { tool: 'dimension', label: 'Dimension', icon: <Ruler />, kbd: 'D' },
   { tool: 'text', label: 'Text', icon: <Type /> },
   { tool: 'furniture', label: 'Furniture', icon: <Armchair />, beginner: 'Furniture' },
@@ -29,34 +32,108 @@ const PLAN_TOOLS: { tool: Tool; label: string; icon: JSX.Element; kbd?: string; 
   { tool: 'garage', label: 'Garage', icon: <Car /> },
   { tool: 'patio', label: 'Patio', icon: <Umbrella /> }
 ]
-const EXTRA_TOOLS: { tool: Tool; label: string; icon: JSX.Element }[] = [
-  { tool: 'measure', label: 'Measure distance, area, wall length and ceiling height', icon: <Crosshair /> },
-  { tool: 'split', label: 'Split a room', icon: <Split /> },
-  { tool: 'pan', label: 'Pan (or hold Space / middle mouse)', icon: <Hand /> }
+const EXTRA_TOOLS: { tool: Tool; label: string; short?: string; icon: JSX.Element; kbd?: string }[] = [
+  { tool: 'measure', label: 'Measure distance, area, wall length and ceiling height', short: 'Measure', icon: <Crosshair /> },
+  { tool: 'split', label: 'Split a room', short: 'Split room', icon: <Split /> },
+  { tool: 'pan', label: 'Pan (or hold Space / middle mouse)', short: 'Pan', icon: <Hand /> }
 ]
 
+const LAYER_ROWS: { k: LayerKey; label: string }[] = [
+  { k: 'architecture', label: 'Architecture' },
+  { k: 'structure', label: 'Structure' },
+  { k: 'furniture', label: 'Furniture' },
+  { k: 'electrical', label: 'Electrical' },
+  { k: 'plumbing', label: 'Plumbing' },
+  { k: 'landscape', label: 'Landscape' },
+  { k: 'lighting', label: 'Lighting' },
+  { k: 'materials', label: 'Material colours' },
+  { k: 'annotations', label: 'Labels and notes' }
+]
+
+function SideSection(props: { id: string; title: string; children: React.ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(() => {
+    try {
+      const v = localStorage.getItem(`hf.side.${props.id}`)
+      return v === null ? props.defaultOpen !== false : v === '1'
+    } catch {
+      return props.defaultOpen !== false
+    }
+  })
+  return (
+    <section className="side-section">
+      <button className="side-head" aria-expanded={open} onClick={() => {
+          setOpen(!open)
+          try {
+            localStorage.setItem(`hf.side.${props.id}`, open ? '0' : '1')
+          } catch {
+            /* storage blocked */
+          }
+        }}>
+        {props.title}
+        <ChevronDown className={open ? '' : 'collapsed'} />
+      </button>
+      {open && <div className="side-body">{props.children}</div>}
+    </section>
+  )
+}
+
+/** Left sidebar: labelled tools with shortcuts, layers, and project actions (2D plan and 3D). */
 export function Toolbar() {
   const mode = useUI((s) => s.mode)
   const tool = useUI((s) => s.tool)
   const uiMode = useUI((s) => s.uiMode)
   const set = useUI((s) => s.set)
-  if (mode !== 'plan') return <aside className="toolbar" aria-label="Tools" />
+  const layers = useProject((s) => s.project.settings.layers)
+  if (mode !== 'plan' && mode !== '3d') return null
   const beginner = uiMode === 'beginner'
-  const tools = beginner ? PLAN_TOOLS.filter((t) => t.beginner) : PLAN_TOOLS
-  const pick = (t: Tool) => set({ tool: t, toolOption: defaultOption(t) })
+  const pick = (t: Tool) => {
+    if (mode !== 'plan') setMode('plan')
+    set({ tool: t, toolOption: defaultOption(t) })
+  }
+  const row = (t: { tool: Tool; label: string; icon: JSX.Element; kbd?: string; beginner?: string; short?: string }) => (
+    <button key={t.tool} className={`side-tool ${tool === t.tool && mode === 'plan' ? 'on' : ''}`} onClick={() => pick(t.tool)} data-tip={t.label}>
+      {t.icon}
+      <span className="n">{beginner && t.beginner ? t.beginner : (t.short ?? t.label)}</span>
+      {t.kbd && <span className="k">{t.kbd}</span>}
+    </button>
+  )
   return (
-    <aside className="toolbar" aria-label="Tools">
-      {tools.map((t) => (
-        <IconButton key={t.tool} icon={t.icon} label={beginner && t.beginner ? t.beginner : t.label} shortcut={t.kbd} active={tool === t.tool} onClick={() => pick(t.tool)} />
-      ))}
-      <div className="sep" />
-      {!beginner && EXTRA_TOOLS.map((t) => <IconButton key={t.tool} icon={t.icon} label={t.label} active={tool === t.tool} onClick={() => pick(t.tool)} />)}
-      {beginner && (
-        <>
-          <IconButton icon={<Palette />} label="Materials" onClick={() => setMode('materials')} />
-          <IconButton icon={<Box />} label="See it in 3D" shortcut="2" onClick={() => setMode('3d')} />
-        </>
-      )}
+    <aside className="sidebar" aria-label="Tools">
+      <SideSection id="tools" title="Tools">
+        {PLAN_TOOLS.map(row)}
+        {!beginner && EXTRA_TOOLS.map(row)}
+      </SideSection>
+      <SideSection id="layers" title="Layers">
+        {LAYER_ROWS.map((l) => (
+          <label key={l.k} className="side-check">
+            <input type="checkbox" checked={layers[l.k]} onChange={() => commit(`${layers[l.k] ? 'Hide' : 'Show'} ${l.label.toLowerCase()}`, (d) => void (d.settings.layers[l.k] = !d.settings.layers[l.k]))} />
+            {l.label}
+          </label>
+        ))}
+      </SideSection>
+      <SideSection id="project" title="Project">
+        <div className="side-project">
+          <button onClick={() => {
+              useWizard.getState().reset()
+              set({ screen: 'wizard' })
+            }}>
+            <FilePlus2 />
+            New
+          </button>
+          <button onClick={() => void openProjectDialog()}>
+            <FolderOpen />
+            Open
+          </button>
+          <button onClick={() => void saveProject()}>
+            <Save />
+            Save
+          </button>
+          <button onClick={() => useUI.getState().openDialog('export')}>
+            <Share />
+            Export
+          </button>
+        </div>
+      </SideSection>
     </aside>
   )
 }

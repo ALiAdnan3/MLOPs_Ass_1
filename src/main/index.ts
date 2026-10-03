@@ -14,8 +14,8 @@ let win: BrowserWindow | null = null
 let pendingOpen: string | null = null
 let allowClose = false
 
-const DARK = { color: '#1A1C1F', symbolColor: '#C9CED3' }
-const LIGHT = { color: '#ECEEF1', symbolColor: '#30363C' }
+const DARK = { color: '#08101D', symbolColor: '#C9D4E5' }
+const LIGHT = { color: '#E9EEF5', symbolColor: '#24344A' }
 
 function fileArg(argv: string[]) {
   return argv.find((a) => a.toLowerCase().endsWith('.homeforge'))
@@ -32,7 +32,7 @@ function createWindow() {
     backgroundColor: '#1A1C1F',
     title: 'HomeForge AI',
     titleBarStyle: 'hidden',
-    titleBarOverlay: { ...DARK, height: 40 },
+    titleBarOverlay: { ...DARK, height: 56 },
     icon: join(__dirname, '../../build/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -144,7 +144,7 @@ function registerIpc() {
   ipcMain.handle('hf:ai', async (_e, req) => runAi(await store.getApiKey(), req))
   ipcMain.on('hf:title-theme', (_e, theme: 'dark' | 'light') => {
     try {
-      win?.setTitleBarOverlay({ ...(theme === 'dark' ? DARK : LIGHT), height: 40 })
+      win?.setTitleBarOverlay({ ...(theme === 'dark' ? DARK : LIGHT), height: 56 })
       win?.setBackgroundColor(theme === 'dark' ? DARK.color : LIGHT.color)
     } catch {
       /* not supported on this platform */

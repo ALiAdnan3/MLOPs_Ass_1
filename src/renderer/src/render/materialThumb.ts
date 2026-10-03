@@ -12,13 +12,13 @@ import { materialSwatch } from '../core/materials/library'
 const cache = new Map<string, string>()
 const inflight = new Map<string, Promise<string>>()
 
-function keyOf(m: MaterialDef) {
-  return `${m.id}|${m.brightness}|${m.contrast}|${m.procedural?.colors.join(',')}|${m.assetId ?? ''}`
+function keyOf(m: MaterialDef, size = 128) {
+  return `${size}|${m.id}|${m.brightness}|${m.contrast}|${m.procedural?.colors.join(',')}|${m.assetId ?? ''}`
 }
 
 export function materialThumb(m: MaterialDef, size = 128): Promise<string> {
   if (m.assetId) return Promise.resolve(assetUrl(m.assetId) ?? '')
-  const key = keyOf(m)
+  const key = keyOf(m, size)
   const hit = cache.get(key)
   if (hit) return Promise.resolve(hit)
   const running = inflight.get(key)

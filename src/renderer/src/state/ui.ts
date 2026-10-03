@@ -58,6 +58,12 @@ export interface UIState {
   viewMode: ViewMode3D
   camera: CameraPreset
   showAllFloors: boolean
+  /** Plan mode shows the 2D plan and the live 3D model side by side. */
+  split: boolean
+  /** Bottom dock (floors, materials, recent projects, assistant) in plan and 3D modes. */
+  dockOpen: boolean
+  /** 2D plan look: textured presentation plan or clean drafting lines. */
+  planStyle: 'rendered' | 'technical'
   explodeGap: number
   cursor: Vec2 | null
   toasts: Toast[]
@@ -95,6 +101,9 @@ export const useUI = create<UIState>((set, get) => ({
   viewMode: 'realistic',
   camera: 'orbit',
   showAllFloors: true,
+  split: true,
+  dockOpen: true,
+  planStyle: 'rendered',
   explodeGap: 0,
   cursor: null,
   toasts: [],

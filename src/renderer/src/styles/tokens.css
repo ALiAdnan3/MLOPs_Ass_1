@@ -1,59 +1,62 @@
 /* HomeForge AI design tokens — see docs/DESIGN_SYSTEM.md */
 :root,
 :root[data-theme='dark'] {
-  --bg: #1a1c1f;
-  --canvas: #1a1c1f;
-  --panel: #212428;
-  --panel-2: #1e2124;
-  --raised: #2a2e33;
-  --raised-2: #32373d;
-  --line: #343a40;
-  --line-soft: #2a2f34;
-  --text: #e6e8ea;
-  --text-2: #a3aab2;
-  --text-3: #6e767f;
-  --tape: #f0b823;
-  --tape-ink: #1b1f24;
-  --tape-soft: rgba(240, 184, 35, 0.14);
-  --chalk: #4da8da;
-  --chalk-soft: rgba(77, 168, 218, 0.14);
+  /* Midnight: navy surfaces, blue for active/primary, cyan for snapping/hover */
+  --bg: #08101d;
+  --canvas: #0b1424;
+  --panel: #0e1829;
+  --panel-2: #0b1423;
+  --raised: #142237;
+  --raised-2: #1b2c46;
+  --line: #22344f;
+  --line-soft: #172740;
+  --text: #e8eef7;
+  --text-2: #9eadc2;
+  --text-3: #63738b;
+  --tape: #2f7bff;
+  --tape-ink: #ffffff;
+  --tape-soft: rgba(47, 123, 255, 0.16);
+  --chalk: #38bdf8;
+  --chalk-soft: rgba(56, 189, 248, 0.14);
   /* data marks (validated with the dataviz palette checker against --panel) */
   --chart-1: #4199cc;
-  --danger: #e5534b;
-  --danger-soft: rgba(229, 83, 75, 0.14);
-  --warn: #d9a441;
-  --ok: #46b37b;
-  --ok-soft: rgba(70, 179, 123, 0.14);
-  --shadow-float: 0 12px 32px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04);
-  --scrim: rgba(10, 12, 14, 0.62);
+  --danger: #ef5a52;
+  --danger-soft: rgba(239, 90, 82, 0.14);
+  --warn: #e3a948;
+  --ok: #3fbf86;
+  --ok-soft: rgba(63, 191, 134, 0.14);
+  --shadow-float: 0 14px 36px rgba(0, 4, 12, 0.55), 0 0 0 1px rgba(120, 160, 230, 0.06);
+  --scrim: rgba(3, 7, 14, 0.66);
+  --pane-head: #0c1626;
   color-scheme: dark;
 }
 
 :root[data-theme='light'] {
-  --bg: #eceef1;
+  --bg: #e9eef5;
   --canvas: #ffffff;
   --panel: #ffffff;
-  --panel-2: #f7f8f9;
-  --raised: #f2f3f5;
-  --raised-2: #e7e9ec;
-  --line: #d5d9de;
-  --line-soft: #e6e9ec;
-  --text: #1b1f24;
-  --text-2: #56606b;
-  --text-3: #8a939c;
-  --tape: #d99a00;
-  --tape-ink: #1b1f24;
-  --tape-soft: rgba(217, 154, 0, 0.14);
-  --chalk: #1f7fb5;
-  --chalk-soft: rgba(31, 127, 181, 0.12);
+  --panel-2: #f5f8fc;
+  --raised: #eef2f8;
+  --raised-2: #e1e8f2;
+  --line: #ccd6e3;
+  --line-soft: #e1e7f0;
+  --text: #0f1b2d;
+  --text-2: #4a5a70;
+  --text-3: #8191a7;
+  --tape: #1f6feb;
+  --tape-ink: #ffffff;
+  --tape-soft: rgba(31, 111, 235, 0.12);
+  --chalk: #0e8ac7;
+  --chalk-soft: rgba(14, 138, 199, 0.12);
   --chart-1: #1f7fb5;
   --danger: #c9372c;
   --danger-soft: rgba(201, 55, 44, 0.1);
   --warn: #b27b00;
   --ok: #23875a;
   --ok-soft: rgba(35, 135, 90, 0.1);
-  --shadow-float: 0 12px 32px rgba(20, 28, 36, 0.16), 0 0 0 1px rgba(20, 28, 36, 0.06);
-  --scrim: rgba(40, 46, 54, 0.35);
+  --shadow-float: 0 14px 36px rgba(15, 30, 55, 0.16), 0 0 0 1px rgba(15, 30, 55, 0.06);
+  --scrim: rgba(25, 38, 58, 0.35);
+  --pane-head: #f5f8fc;
   color-scheme: light;
 }
 
@@ -62,7 +65,7 @@
   --r-sm: 3px;
   --r: 4px;
   --r-lg: 8px;
-  --titlebar: 40px;
+  --titlebar: 56px;
   --statusbar: 34px;
   --toolbar: 48px;
   --inspector: 312px;

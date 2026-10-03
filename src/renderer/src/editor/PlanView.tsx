@@ -5,7 +5,8 @@ import { useProject, commit, getProject } from '../state/store'
 import { useUI, type Tool } from '../state/ui'
 import { CanvasContext, toScreen, toWorld, type ViewTransform } from '../render/draw/canvas'
 import { drawPlan, drawDimension, drawFurniture, drawNorthArrow } from '../render/draw/plan'
-import { DARK_PLAN, LIGHT_PLAN, type PlanTheme } from '../render/draw/theme'
+import { DARK_PLAN, LIGHT_PLAN, RENDERED_PLAN, type PlanTheme } from '../render/draw/theme'
+import { drawTexturedUnderlay } from '../render/texturedPlan'
 import { bbox, isAxisRect, pointInPolygon, rectPoly, area, type Rect } from '../core/geometry/polygon'
 import { projectT, segLength } from '../core/geometry/segment'
 import { add, dist, norm, rotate, scale, sub } from '../core/geometry/vec'
@@ -73,7 +74,8 @@ export function PlanView() {
     const ui = useUI.getState()
     const p = getProject()
     const floor = floorOf(p)
-    const theme: PlanTheme = ui.theme === 'light' ? LIGHT_PLAN : DARK_PLAN
+    const rendered = ui.planStyle === 'rendered'
+    const theme: PlanTheme = rendered ? RENDERED_PLAN : ui.theme === 'light' ? LIGHT_PLAN : DARK_PLAN
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.fillStyle = theme.paper
     ctx.fillRect(0, 0, c.width, c.height)
@@ -81,7 +83,10 @@ export function PlanView() {
     if (!floor) return
     const dc = new CanvasContext(ctx, view.current, dpr)
     const below = sortedFloors(p.floors).find((f) => f.level === floor.level - 1)
+    const lite = !!inter.current && inter.current.type !== 'pan' && inter.current.type !== 'marquee'
+    if (rendered) drawTexturedUnderlay(ctx, view.current, dpr, p, floor, { site: floor.level === 0, materials: p.materials, onReady: request, lite })
     drawPlan(dc, p, floor, {
+      textured: rendered,
       theme,
       layers: p.settings.layers,
       units: p.settings.units,
@@ -287,13 +292,27 @@ export function PlanView() {
       inter.current = null
       request()
     }
+    // zoom buttons in the pane header zoom about the view centre
+    const onZoom = (e: Event) => {
+      const k = (e as CustomEvent<number>).detail || 1.2
+      const c = canvas.current
+      if (!c) return
+      const r = c.getBoundingClientRect()
+      const s = { x: r.width / 2, y: r.height / 2 }
+      const w = toWorld(view.current, s)
+      const scaleN = Math.max(2, Math.min(400, view.current.scale * k))
+      view.current = { scale: scaleN, ox: s.x - w.x * scaleN, oy: s.y - w.y * scaleN }
+      request()
+    }
     window.addEventListener('hf:fit', onFit)
     window.addEventListener('hf:cancel', onCancel)
+    window.addEventListener('hf:zoom', onZoom)
     return () => {
       a()
       b()
       window.removeEventListener('hf:fit', onFit)
       window.removeEventListener('hf:cancel', onCancel)
+      window.removeEventListener('hf:zoom', onZoom)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request])

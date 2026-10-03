@@ -16,6 +16,8 @@ import { catalogItem } from '../core/furniture/catalog'
 import { wallsOfRoom, effectiveKind } from '../planner/walls'
 import { segLength } from '../core/geometry/segment'
 import { EstimatePanel } from './EstimatePanel'
+import { useMaterialThumb, thumbStyle } from '../render/materialThumb'
+import { lightsForRoom } from '../planner/services'
 import { MaterialsPanel } from '../modes/MaterialsPanel'
 import { RoomDesigner } from '../modes/RoomDesigner'
 import { ExteriorPanel } from '../modes/ExteriorPanel'
@@ -180,9 +182,10 @@ export function MaterialPicker(props: { value?: string; fallback?: string; onCha
   const id = props.value ?? props.fallback
   const m = resolveMaterial(id, props.project.materials)
   const all = [...props.project.materials, ...LIBRARY].filter((x) => !props.categories || props.categories.includes(x.category))
+  const url = useMaterialThumb(m)
   return (
-    <div className="row" style={{ gap: 6 }}>
-      <span className="swatch" style={{ background: materialSwatch(m) }} />
+    <div className="row mat-pick" style={{ gap: 6 }}>
+      <span className="swatch lg" style={thumbStyle(m, url)} />
       <select className="field" value={id ?? ''} onChange={(e) => props.onChange(e.target.value)}>
         {all.map((x) => (
           <option key={x.id} value={x.id}>
@@ -200,26 +203,48 @@ function RoomProps({ project, floor, room }: { project: Project; floor: Floor; r
   const b = bbox(room.polygon)
   const sp = spec(room.type)
   const upRoom = (label: string, fn: (r: Room) => void, coalesce?: string) => upFloor(floor.id, label, (f) => fn(f.rooms.find((x) => x.id === room.id)!), coalesce)
-  const doors = floor.openings.filter((o) => o.kind === 'door' && wallsOfRoom(floor, room).some((w) => w.wall.id === o.wallId && o.offset >= w.t0 - 0.01 && o.offset <= w.t1 + 0.01))
-  const windows = floor.openings.filter((o) => o.kind === 'window' && wallsOfRoom(floor, room).some((w) => w.wall.id === o.wallId && o.offset >= w.t0 - 0.01 && o.offset <= w.t1 + 0.01))
+  const segs = wallsOfRoom(floor, room)
+  const inRoom = (o: { wallId: string; offset: number }) => segs.some((w) => w.wall.id === o.wallId && o.offset >= w.t0 - 0.01 && o.offset <= w.t1 + 0.01)
+  const doors = floor.openings.filter((o) => o.kind === 'door' && inRoom(o))
+  const windows = floor.openings.filter((o) => o.kind === 'window' && inRoom(o))
   const furniture = floor.furniture.filter((x) => pointInPolygon(x.position, room.polygon))
+  const groups = new Map<string, number>()
+  for (const f of furniture) {
+    const n = catalogItem(f.type)?.name ?? f.type
+    groups.set(n, (groups.get(n) ?? 0) + 1)
+  }
+  const lights = new Map<string, number>()
+  const LIGHT_NAMES: Record<string, string> = { downlight: 'Ceiling lights', light: 'Ceiling light', chandelier: 'Chandelier', pendant: 'Pendant lights', cove: 'Cove lighting', 'wall-light': 'Wall lights' }
+  for (const l of lightsForRoom(room)) {
+    const n = LIGHT_NAMES[l.kind] ?? l.kind
+    lights.set(n, (lights.get(n) ?? 0) + 1)
+  }
+  const lamps = furniture.filter((f) => f.type === 'floor-lamp').length
+  if (lamps) lights.set('Floor lamps', lamps)
+  const lightOn = room.lighting?.on !== false
+  const furnishOn = furniture.length > 0
+  const height = room.ceilingHeight ?? floor.height - floor.slabThickness
   return (
     <>
-      <div className="section">
-        <div className="section-head">
-          <h3>{room.name}</h3>
-          <span className="sub">{sp.label}</span>
-        </div>
-        <div className="prop">
-          <label>Name</label>
-          <input className="field" value={room.name} onChange={(e) => upRoom('Rename room', (r) => {
-              r.name = e.target.value
-              r.autoName = false
-            }, `name-${room.id}`)} />
-        </div>
-        <div className="prop">
-          <label>Type</label>
-          <select className="field" value={room.type} onChange={(e) => upRoom('Change room type', (r) => void (r.type = e.target.value as RoomType))}>
+      <div className="section selected-head">
+        <div className="faint" style={{ fontSize: 11 }}>Selected</div>
+        <div className="row" style={{ gap: 8 }}>
+          <input
+            className="field room-title"
+            value={room.name}
+            aria-label="Room name"
+            onChange={(e) =>
+              upRoom(
+                'Rename room',
+                (r) => {
+                  r.name = e.target.value
+                  r.autoName = false
+                },
+                `name-${room.id}`
+              )
+            }
+          />
+          <select className="field" style={{ width: 128 }} value={room.type} onChange={(e) => upRoom('Change room type', (r) => void (r.type = e.target.value as RoomType))} aria-label="Room type">
             {ROOM_TYPE_GROUPS.map((g) => (
               <optgroup key={g.label} label={g.label}>
                 {g.types.map((t) => (
@@ -231,68 +256,111 @@ function RoomProps({ project, floor, room }: { project: Project; floor: Floor; r
             ))}
           </select>
         </div>
+        <div className="faint" style={{ fontSize: 11, marginTop: 4 }}>
+          {floor.name} floor, {sp.label}
+        </div>
       </div>
       <div className="section">
         <div className="section-head">
           <h3>Dimensions</h3>
-          <span className="sub">{formatAreaFor(area(room.polygon), u)}</span>
         </div>
-        <div className="prop-grid">
-          <LengthField prefix="W" value={b.w} units={u} min={0.6} onCommit={(v) => upFloor(floor.id, `Set ${room.name} width`, (f) => void setRoomSize(f, room.id, 'x', v, project.settings))} tip="Width; neighbouring rooms adjust" />
-          <LengthField prefix="L" value={b.h} units={u} min={0.6} onCommit={(v) => upFloor(floor.id, `Set ${room.name} length`, (f) => void setRoomSize(f, room.id, 'y', v, project.settings))} tip="Length; neighbouring rooms adjust" />
-          <LengthField prefix="H" value={room.ceilingHeight ?? floor.height - floor.slabThickness} units={u} min={2.2} max={8} onCommit={(v) => upRoom('Ceiling height', (r) => void (r.ceilingHeight = v))} tip="Clear ceiling height" />
-          <div className="field row faint" style={{ fontSize: 12 }}>
-            {floor.name} floor
-          </div>
+        <div className="dim-table">
+          <label>Length</label>
+          <LengthField value={b.h} units={u} min={0.6} onCommit={(v) => upFloor(floor.id, `Set ${room.name} length`, (f) => void setRoomSize(f, room.id, 'y', v, project.settings))} tip="Neighbouring rooms adjust" />
+          <label>Width</label>
+          <LengthField value={b.w} units={u} min={0.6} onCommit={(v) => upFloor(floor.id, `Set ${room.name} width`, (f) => void setRoomSize(f, room.id, 'x', v, project.settings))} tip="Neighbouring rooms adjust" />
+          <label>Area</label>
+          <span className="tabular dim-ro">{formatAreaFor(area(room.polygon), u)}</span>
+          <label>Height</label>
+          <LengthField value={height} units={u} min={2.2} max={8} onCommit={(v) => upRoom('Ceiling height', (r) => void (r.ceilingHeight = v))} tip="Clear ceiling height" />
         </div>
-        <UseAdvanced>
-          <div className="prop" style={{ marginTop: 6 }}>
-            <label>Position</label>
-            <span className="tabular faint">
-              X {formatLength(b.x, u)}, Y {formatLength(b.y, u)}
-            </span>
-          </div>
-        </UseAdvanced>
       </div>
       <div className="section">
         <div className="section-head">
-          <h3>Finishes</h3>
+          <h3>Room settings</h3>
         </div>
-        <div className="prop">
-          <label>Floor</label>
+        <div className="mat-row">
+          <label>Floor material</label>
           <MaterialPicker project={project} value={room.floorMaterial} fallback={sp.floorFinish} onChange={(id) => upRoom('Floor material', (r) => void (r.floorMaterial = id))} />
         </div>
-        <div className="prop">
-          <label>Walls</label>
+        <div className="mat-row">
+          <label>Wall material</label>
           <MaterialPicker project={project} value={room.wallMaterial} fallback={sp.wallFinish} onChange={(id) => upRoom('Wall material', (r) => void (r.wallMaterial = id))} />
         </div>
-        <div className="prop">
+        <div className="mat-row">
           <label>Ceiling</label>
-          <Seg value={room.ceilingType ?? 'flat'} onChange={(v) => upRoom('Ceiling type', (r) => void (r.ceilingType = v))} options={[{ value: 'flat', label: 'Flat' }, { value: 'false-ceiling', label: 'False' }, { value: 'cove', label: 'Cove' }]} />
+          <Seg full value={room.ceilingType ?? 'flat'} onChange={(v) => upRoom('Ceiling type', (r) => void (r.ceilingType = v))} options={[{ value: 'flat', label: 'Flat' }, { value: 'false-ceiling', label: 'False ceiling' }, { value: 'cove', label: 'Cove' }]} />
         </div>
+        <button className="btn" style={{ width: '100%', marginTop: 6 }} onClick={() => useUI.getState().set({ mode: 'materials', surface: { kind: 'roomFloor', floorId: floor.id, roomId: room.id } })}>
+          Change material
+        </button>
       </div>
       <div className="section">
         <div className="section-head">
-          <h3>Openings and furniture</h3>
+          <h3>Furniture</h3>
+          <div className="actions">
+            <Switch
+              on={furnishOn}
+              label="Furniture"
+              onChange={(v) =>
+                upFloor(floor.id, v ? `Furnish ${room.name}` : `Clear ${room.name}`, (f) => {
+                  if (v) refurnishRoom(f, room.id, project.requirements.preferences.luxury)
+                  else f.furniture = f.furniture.filter((x) => !pointInPolygon(x.position, room.polygon))
+                })
+              }
+            />
+          </div>
         </div>
-        <div className="kv">
-          <dt>Doors</dt>
-          <dd>{doors.map((d) => formatLength(d.width, u)).join(', ') || 'None'}</dd>
-          <dt>Windows</dt>
-          <dd>{windows.map((d) => formatLength(d.width, u)).join(', ') || 'None'}</dd>
-          <dt>Furniture</dt>
-          <dd>{furniture.length} items</dd>
-          <dt>Lighting</dt>
-          <dd>{room.lighting?.fixture ?? 'Automatic'}</dd>
+        {groups.size ? (
+          <div className="count-list">
+            {[...groups.entries()].map(([n, c]) => (
+              <div key={n} className="count-row">
+                <span>{n}</span>
+                <span className="tabular">{c}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="faint" style={{ fontSize: 12, margin: 0 }}>
+            Empty. Switch on to furnish it automatically.
+          </p>
+        )}
+      </div>
+      <div className="section">
+        <div className="section-head">
+          <h3>Lighting</h3>
+          <div className="actions">
+            <Switch
+              on={lightOn}
+              label="Lighting"
+              onChange={(v) => upRoom(v ? 'Lights on' : 'Lights off', (r) => void (r.lighting = { on: v, fixture: r.lighting?.fixture ?? 'downlights', intensity: r.lighting?.intensity ?? 1, temperature: r.lighting?.temperature ?? 3000 }))}
+            />
+          </div>
         </div>
-        <div className="row" style={{ marginTop: 10 }}>
-          <button className="btn sm" onClick={() => commit(`Furnish ${room.name}`, (d) => refurnishRoom(d.floors.find((x) => x.id === floor.id) as Floor, room.id, project.requirements.preferences.luxury))}>
-            Re-furnish
-          </button>
-          <button className="btn sm" onClick={() => useUI.getState().set({ mode: 'interior' })}>
-            Room designer
-          </button>
+        <div className="count-list">
+          {[...lights.entries()].map(([n, c]) => (
+            <div key={n} className="count-row">
+              <span>{n}</span>
+              <span className="tabular">{c}</span>
+            </div>
+          ))}
+          <div className="count-row faint">
+            <span>Doors and windows</span>
+            <span className="tabular">
+              {doors.length} / {windows.length}
+            </span>
+          </div>
         </div>
+      </div>
+      <div className="section" style={{ borderBottom: 'none' }}>
+        <button className="btn primary big" style={{ width: '100%' }} onClick={() => useUI.getState().set({ mode: 'interior', selection: [{ kind: 'room', id: room.id, floorId: floor.id }] })}>
+          Edit room
+        </button>
+        <UseAdvanced>
+          <div className="faint tabular" style={{ fontSize: 11, marginTop: 8 }}>
+            X {formatLength(b.x, u)}, Y {formatLength(b.y, u)}
+          </div>
+        </UseAdvanced>
       </div>
     </>
   )

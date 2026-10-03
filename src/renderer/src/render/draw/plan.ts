@@ -28,6 +28,8 @@ export interface PlanOptions {
   materials?: MaterialDef[]
   /** Hide things during interactive drags. */
   lite?: boolean
+  /** A texture underlay already painted floors, lawns and paving: draw linework only. */
+  textured?: boolean
 }
 
 const S = (color: string, width: number, extra: Partial<Stroke> = {}): Stroke => ({ color, width, ...extra })
@@ -52,6 +54,7 @@ export function drawPlan(dc: DrawContext, house: HouseState, floor: Floor, o: Pl
   // rooms
   dc.layer('rooms')
   for (const r of floor.rooms) {
+    if (o.textured) break
     const sp = spec(r.type)
     let fill = t.room[sp.zone] ?? t.room.semi
     if (L.materials && r.floorMaterial !== undefined) fill = materialSwatch(resolveMaterial(r.floorMaterial ?? sp.floorFinish, o.materials ?? []))
@@ -210,13 +213,17 @@ function drawSite(dc: DrawContext, house: HouseState, o: PlanOptions) {
   const pb = bbox(plot.polygon)
   // road
   const road = { x: pb.x - 3, y: pb.y + pb.h, w: pb.w + 6, h: plot.roadWidth }
-  dc.polygon([{ x: road.x, y: road.y }, { x: road.x + road.w, y: road.y }, { x: road.x + road.w, y: road.y + road.h }, { x: road.x, y: road.y + road.h }], { color: t.road }, null)
+  if (!o.textured) dc.polygon([{ x: road.x, y: road.y }, { x: road.x + road.w, y: road.y }, { x: road.x + road.w, y: road.y + road.h }, { x: road.x, y: road.y + road.h }], { color: t.road }, null)
   dc.line({ x: road.x, y: road.y + road.h / 2 }, { x: road.x + road.w, y: road.y + road.h / 2 }, S(t.textMuted, 0.5, { dash: [10, 8] }))
   dc.text({ x: pb.x + pb.w / 2, y: road.y + road.h * 0.75 }, `ROAD ${formatLength(plot.roadWidth, o.units, { compact: true })} WIDE`, { size: 0.35, color: t.textMuted, align: 'center', baseline: 'middle', condensed: true, minPx: 9 })
   if (o.layers.landscape) {
     for (const a of house.site.areas) {
       const col = a.kind === 'lawn' ? t.lawn : a.kind === 'pool' ? t.water : a.kind === 'garden_bed' || a.kind === 'play_area' ? t.lawn : t.paving
       const fill = o.layers.materials && a.material ? materialSwatch(resolveMaterial(a.material, o.materials ?? [])) : col
+      if (o.textured) {
+        if (a.kind === 'pool') dc.polygon(a.polygon, null, S(t.glass, 1))
+        continue
+      }
       dc.polygon(a.polygon, { color: fill }, S(a.kind === 'pool' ? t.glass : t.roomStroke, a.kind === 'pool' ? 1 : 0.4))
       if (a.kind === 'lawn' && dc.pxPerMeter > 6 && !o.lite) lawnMarks(dc, a.polygon, t)
       if (a.kind === 'pool') {
@@ -433,6 +440,38 @@ function rectL(f: FurnitureItem, x0: number, y0: number, x1: number, y1: number)
   ])
 }
 
+/** Finish colours for presentation plans, by plan symbol. */
+const RENDER_FILL: Record<string, string> = {
+  bed: '#f3efe7',
+  'bed-single': '#eef1f4',
+  sofa: '#9a9a96',
+  'sofa-l': '#9a9a96',
+  armchair: '#a88c6c',
+  dining: '#8a6243',
+  table: '#9a7150',
+  desk: '#9a7150',
+  chair: '#6b5848',
+  tv: '#24272b',
+  wardrobe: '#b08b62',
+  box: '#b9976f',
+  shelf: '#9e7a55',
+  counter: '#3a3f46',
+  'counter-sink': '#3a3f46',
+  'counter-hob': '#3a3f46',
+  island: '#2f343b',
+  fridge: '#d9dcdf',
+  bathtub: '#ffffff',
+  shower: '#e9eef2',
+  wc: '#ffffff',
+  basin: '#f4f5f6',
+  washer: '#e7e9eb',
+  lounger: '#e8e1d2',
+  circle: '#c7ccd1',
+  solar: '#1f3550'
+}
+const CAR_COLORS = ['#2b3038', '#e6e6e3', '#7d1d22', '#1f3a5f', '#9aa1a8']
+const hashId = (id: string) => [...id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7)
+
 export function drawFurniture(dc: DrawContext, f: FurnitureItem, t: PlanTheme) {
   const c = catalogItem(f.type)
   const plan = c?.plan ?? 'box'
@@ -440,7 +479,9 @@ export function drawFurniture(dc: DrawContext, f: FurnitureItem, t: PlanTheme) {
   const d = f.depth / 2
   const st = S(t.furniture, 0.6)
   const thin = S(t.furniture, 0.4)
-  const fill = { color: t.furnitureFill }
+  // presentation plans colour furniture by its finish; drafting plans keep it neutral
+  const rendered = t.name === 'rendered'
+  const fill = { color: rendered ? (f.color ?? c?.color ?? RENDER_FILL[plan] ?? t.furnitureFill) : t.furnitureFill }
   const body = rectL(f, -w, -d, w, d)
   switch (plan) {
     case 'bed':
@@ -534,16 +575,27 @@ export function drawFurniture(dc: DrawContext, f: FurnitureItem, t: PlanTheme) {
       break
     case 'car': {
       const pts = local(f, [[-w + 0.15, -d], [w - 0.15, -d], [w, -d + 0.4], [w, d - 0.3], [w - 0.15, d], [-w + 0.15, d], [-w, d - 0.3], [-w, -d + 0.4]])
-      dc.polygon(pts, fill, st)
-      dc.polygon(rectL(f, -w + 0.2, d - 1.6, w - 0.2, d - 0.95), null, thin)
-      dc.polygon(rectL(f, -w + 0.25, -d + 0.8, w - 0.25, -d + 1.2), null, thin)
+      const body = rendered && !f.color ? { color: CAR_COLORS[hashId(f.id) % CAR_COLORS.length] } : fill
+      dc.polygon(pts, body, st)
+      if (rendered) {
+        // glass: windscreen, roof and rear window
+        dc.polygon(rectL(f, -w + 0.2, d - 1.65, w - 0.2, d - 1.0), { color: '#2a3542' }, null)
+        dc.polygon(rectL(f, -w + 0.28, -d + 0.75, w - 0.28, -d + 1.15), { color: '#2a3542' }, null)
+        dc.polygon(rectL(f, -w + 0.22, -d + 1.15, w - 0.22, d - 1.65), { color: '#ffffff', opacity: 0.12 }, null)
+      } else {
+        dc.polygon(rectL(f, -w + 0.2, d - 1.6, w - 0.2, d - 0.95), null, thin)
+        dc.polygon(rectL(f, -w + 0.25, -d + 0.8, w - 0.25, -d + 1.2), null, thin)
+      }
       break
     }
     case 'plant':
       dc.circle(f.position, Math.max(w, d), { color: t.tree }, S(t.treeStroke, 0.5))
       break
     case 'rug':
-      dc.polygon(body, null, S(t.furniture, 0.4, { dash: [2, 2] }))
+      if (rendered) {
+        dc.polygon(body, { color: f.color ?? c?.color ?? '#b7a68c', opacity: 0.85 }, null)
+        dc.polygon(rectL(f, -w + 0.12, -d + 0.12, w - 0.12, d - 0.12), null, S('#ffffff', 0.5, { opacity: 0.45 }))
+      } else dc.polygon(body, null, S(t.furniture, 0.4, { dash: [2, 2] }))
       break
     case 'washer':
       dc.polygon(body, fill, st)

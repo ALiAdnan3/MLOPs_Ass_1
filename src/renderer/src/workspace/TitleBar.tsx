@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Undo2, Redo2, Box, PenLine, Map as MapIcon, Palette, Sofa, Building, Footprints, Plane, Presentation, Bot, Sun, Moon } from 'lucide-react'
+import { Undo2, Redo2, Box, PenLine, Map as MapIcon, Palette, Sofa, Building, Footprints, Plane, Presentation, Bot, Sun, Moon, Save, ChevronDown } from 'lucide-react'
 import { useProject, commit } from '../state/store'
 import { useUI, type Mode } from '../state/ui'
 import { BrandMark, IconButton, Menu, type MenuItem } from '../ui/primitives'
@@ -17,7 +17,7 @@ const MODES: { key: Mode; label: string; icon: JSX.Element; kbd?: string }[] = [
   { key: 'materials', label: 'Materials', icon: <Palette /> },
   { key: 'interior', label: 'Interior', icon: <Sofa /> },
   { key: 'exterior', label: 'Exterior', icon: <Building /> },
-  { key: 'walk', label: 'Walk', icon: <Footprints />, kbd: '3' },
+  { key: 'walk', label: 'Walkthrough', icon: <Footprints />, kbd: '3' },
   { key: 'drone', label: 'Drone', icon: <Plane /> },
   { key: 'present', label: 'Present', icon: <Presentation /> }
 ]
@@ -111,8 +111,13 @@ export function TitleBar() {
   return (
     <header className="titlebar">
       <div className="brand" onClick={() => set({ screen: 'home' })} data-tip="Start screen">
-        <BrandMark />
-        HomeForge AI
+        <span className="brand-tile">
+          <BrandMark size={22} />
+        </span>
+        <span className="brand-text">
+          <b>HomeForge AI</b>
+          <small>Design. Generate. Customize. Experience Your Home.</small>
+        </span>
       </div>
       <nav className="menubar">
         {Object.keys(menus).map((k) => (
@@ -134,12 +139,15 @@ export function TitleBar() {
           </button>
         ))}
       </nav>
-      <input
-        className="project-name"
-        value={name}
-        aria-label="Project name"
-        onChange={(e) => commit('Rename project', (d) => void (d.name = e.target.value), { coalesce: 'project-name' })}
-      />
+      <div className="project-pill">
+        <input className="project-name" value={name} aria-label="Project name" onChange={(e) => commit('Rename project', (d) => void (d.name = e.target.value), { coalesce: 'project-name' })} />
+        <button className="icon-btn" aria-label="Project menu" data-tip="Project" onClick={(e) => {
+            const r = (e.currentTarget as HTMLElement).parentElement!.getBoundingClientRect()
+            setMenu({ key: 'Project', x: r.left, y: r.bottom + 4 })
+          }}>
+          <ChevronDown />
+        </button>
+      </div>
       <div className="modes" role="tablist" aria-label="Modes">
         {MODES.map((m) => (
           <button key={m.key} role="tab" aria-selected={mode === m.key} className={mode === m.key ? 'on' : ''} onClick={() => setMode(m.key)} data-tip={m.label} data-kbd={m.kbd}>
@@ -149,6 +157,7 @@ export function TitleBar() {
         ))}
       </div>
       <div className="drag" />
+      <IconButton icon={<Save />} label={dirty ? 'Save' : 'Saved'} shortcut="Ctrl+S" onClick={() => void saveProject()} />
       <IconButton icon={<Undo2 />} label={canUndo ? `Undo ${undoLabel?.toLowerCase() ?? ''}` : 'Nothing to undo'} shortcut="Ctrl+Z" disabled={!canUndo} onClick={() => P().undo()} />
       <IconButton icon={<Redo2 />} label={canRedo ? `Redo ${redoLabel?.toLowerCase() ?? ''}` : 'Nothing to redo'} shortcut="Ctrl+Y" disabled={!canRedo} onClick={() => P().redo()} />
       <IconButton icon={<Bot />} label="AI assistant" shortcut="Ctrl+K" active={assistantOpen} onClick={() => set({ assistantOpen: !assistantOpen })} />
