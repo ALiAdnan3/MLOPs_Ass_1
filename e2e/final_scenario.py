@@ -151,7 +151,7 @@ def main() -> int:
         shot(page, "interior-finishes")
 
         # ── walk & drone ──────────────────────────────────────────────────
-        page.get_by_role("tab", name="Walk", exact=True).click()
+        page.get_by_role("tab", name="Walkthrough", exact=True).click()
         page.wait_for_timeout(3500)
         page.keyboard.down("w")
         page.wait_for_timeout(900)
@@ -206,7 +206,7 @@ def main() -> int:
 
         # ── exports ───────────────────────────────────────────────────────
         def export_menu(label: str):
-            page.get_by_role("button", name="Export", exact=True).click()
+            page.locator(".titlebar").get_by_role("button", name="Export", exact=True).click()
             page.wait_for_timeout(300)
             page.get_by_text(label, exact=True).click()
             page.wait_for_timeout(1500)

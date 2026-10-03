@@ -153,7 +153,8 @@ export function materialFromAnalysis(a: MaterialAnalysis, name: string, assets: 
   }
 }
 
-export async function uploadMaterialFiles(files: File[]) {
+/** Adds each photo as a material. `quiet` leaves applying to the caller (no prompt, no mode switch). */
+export async function uploadMaterialFiles(files: File[], opts: { quiet?: boolean } = {}): Promise<string[]> {
   const ui = useUI.getState()
   const st = useUpload.getState()
   const created: string[] = []
@@ -200,7 +201,7 @@ export async function uploadMaterialFiles(files: File[]) {
     st.patchJob(id, { stage: 'done', materialId: def.id })
     created.push(def.id)
   }
-  if (!created.length) return
+  if (!created.length || opts.quiet) return created
   const last = created[created.length - 1]
   const surface = useUI.getState().surface
   if (surface) useUpload.getState().set({ confirmId: last })
@@ -212,6 +213,7 @@ export async function uploadMaterialFiles(files: File[]) {
     })
   if (ui.mode !== 'materials') ui.set({ mode: 'materials' })
   window.dispatchEvent(new CustomEvent('hf:material-focus', { detail: last }))
+  return created
 }
 
 /** Re-generate maps for an uploaded material (e.g. after toggling seamless). */

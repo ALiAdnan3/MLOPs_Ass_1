@@ -8,7 +8,11 @@ Everything comes from one structured house model. The 2D plan, 3D view, elevatio
 
 > Conceptual / preliminary design. Generated layouts, quantities and costs are approximate and must be reviewed by a qualified architect and structural engineer before construction or approval.
 
-![3D view](docs/screenshots/3d.png)
+![Design dashboard](docs/screenshots/dashboard.png)
+
+The home screen is a design dashboard: set the plot and requirements on the left, generate five designs, and see the chosen house live in 3D with its rendered floor plans and a 3D cut-away. Try finishes on any room with a preview, adjust its size, play a drone tour, or jump into any tool. The workspace puts the 2D plan and the 3D view side by side, with tools, layers, floors, materials, recent projects and the assistant one click away.
+
+![Workspace: plan and 3D side by side](docs/screenshots/workspace.png)
 
 ## What it does
 
@@ -27,7 +31,7 @@ Everything comes from one structured house model. The 2D plan, 3D view, elevatio
 
 | | |
 |---|---|
-| ![Designs](docs/screenshots/designs.png) | ![Plan editor](docs/screenshots/plan.png) |
+| ![Designs](docs/screenshots/designs.png) | ![3D view](docs/screenshots/3d.png) |
 | ![Materials](docs/screenshots/materials.png) | ![Before and after](docs/screenshots/before-after.png) |
 | ![Interior](docs/screenshots/interior.png) | ![Elevation sheet](docs/screenshots/elevation-sheet.png) |
 

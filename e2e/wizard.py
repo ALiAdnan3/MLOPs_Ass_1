@@ -51,7 +51,7 @@ def main() -> int:
         page.wait_for_timeout(3000)
         page.screenshot(path=str(OUT / "editor.png"))
         # export dialog with live sheet preview
-        page.get_by_role("button", name="Export", exact=True).click()
+        page.locator(".titlebar").get_by_role("button", name="Export", exact=True).click()
         page.wait_for_timeout(300)
         page.get_by_text("Export everything…").click()
         page.wait_for_timeout(2500)

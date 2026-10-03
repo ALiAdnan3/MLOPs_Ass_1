@@ -83,6 +83,13 @@ export function MaterialsPanel() {
       if (engine?.container) {
         engine.highlight(null, 'select')
         engine.highlight(null, 'hover')
+        // an indoor surface chosen from the panel: compare from inside that room, not from the street
+        const roomId = 'roomId' in surface ? surface.roomId : undefined
+        if (roomId && !engine.cameraInside()) {
+          engine.setCameraPreset('room', roomId, false)
+          await frames(2)
+          await engine.mats.waitIdle(4000)
+        }
         before = await engine.snapshot(shotSize())
       }
     } catch {

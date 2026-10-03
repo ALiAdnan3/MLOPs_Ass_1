@@ -195,6 +195,12 @@ export function analyzeImage(inp: AnalysisInput): MaterialAnalysis {
     pattern = gridScore > 0.2 ? 'planks' : 'stripes'
     conf = 0.5 + coherence * 0.4
     notes.push('Strong directional grain in warm tones — wood')
+  } else if (coherence > 0.5 && meanL > 0.72 && meanSat < 0.15 && veinScore > 0.004) {
+    // light stone whose veins happen to run one way; brushed metal is darker and streaked all over
+    type = 'marble'
+    pattern = 'veins'
+    conf = 0.55 + Math.min(0.3, veinScore * 15)
+    notes.push('Light stone with fine darker veins running one way — marble')
   } else if (coherence > 0.5 && meanSat < 0.12) {
     type = 'metal'
     pattern = 'stripes'

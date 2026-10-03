@@ -2,11 +2,13 @@
 
 Source: [MASTER_PROMPT.md](MASTER_PROMPT.md) (74 sections; the same text as `Home_design_features.txt`).
 Status: `[x]` done and verified · `[~]` done with a stated limit. Every item is real functionality (§68).
-Verification: `npm test` (24 unit tests), `e2e/tour.py`, `e2e/wizard.py` and `e2e/final_scenario.py` (Playwright, §72 end to end).
+Verification: `npm test` (27 unit tests), `e2e/tour.py`, `e2e/wizard.py` and `e2e/final_scenario.py` (Playwright, §72 end to end).
 
 ## Product & platform
 
 - [x] §1 HomeForge AI with subtitle; full workflow; everything editable after generation
+- [x] Design dashboard (home): plot and requirements setup, generate designs in place, live 3D hero (orbit, exterior, interior, top; day, sunset, night), rendered 2D plans and 3D cut-away, design strip with Select, finishes with room preview and photo upload, room customisation and resize, drone and walkthrough tours, sketch tools, links to every tool
+- [x] Pro workspace: tools and layers sidebar, 2D plan and 3D side by side, floor, material, recent-project and assistant dock, properties panel
 - [x] §2 Electron desktop app; autosave; offline-first; local storage; quality Low/Medium/High/Ultra; runs on software WebGL at Low (slow without a GPU)
 - [x] §66 Modules: core/ planner/ editor/ engine/ ai/ render/ export/ storage/ modes/ dialogs/ workspace/
 - [x] §71 Disclaimer on home, plan, title blocks, presentation, project export

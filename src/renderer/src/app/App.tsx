@@ -4,7 +4,7 @@ import { useUI } from '../state/ui'
 import { platform } from '../storage/platform'
 import { configureAutosave, openRecent, startAutosave } from '../storage/session'
 import { ContextMenuHost, Modal, PromptHost, TooltipLayer } from '../ui/primitives'
-import { Home } from '../screens/Home'
+import { Dashboard } from '../screens/Dashboard'
 import { Wizard } from '../screens/Wizard'
 import { Designs } from '../screens/Designs'
 import { Workspace } from '../workspace/Workspace'
@@ -41,7 +41,7 @@ export function App() {
   return (
     <div className="app">
       <ErrorBoundary area="application">
-        {screen === 'home' && <Home />}
+        {screen === 'home' && <Dashboard />}
         {screen === 'wizard' && <Wizard />}
         {screen === 'designs' && <Designs />}
         {screen === 'workspace' && <Workspace />}

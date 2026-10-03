@@ -37,11 +37,11 @@ function defaultName(plot: Plot) {
   return pre ? `${pre.label} House` : 'My Dream House'
 }
 
-export function openProject(p: Project, filePath: string | null = null) {
+export function openProject(p: Project, filePath: string | null = null, screen: 'workspace' | 'home' = 'workspace') {
   useAssets.getState().clear()
   useProject.getState().load(p, filePath)
   const g = sortedFloors(p.floors).find((f) => f.level === 0) ?? p.floors[0]
-  useUI.getState().set({ screen: 'workspace', floorId: g?.id ?? '', selection: [], mode: 'plan', tool: 'select', rightTab: 'properties' })
+  useUI.getState().set({ screen, floorId: g?.id ?? '', selection: [], mode: 'plan', tool: 'select', rightTab: 'properties' })
 }
 
 /** Replace the current house with a design (keeps project name, materials, cameras). */
@@ -127,7 +127,8 @@ export async function startTemplate(templateId: string) {
 }
 
 /** The first-run demo (§63): a finished 10 marla house with materials, furniture, garden and garage. */
-export async function openDemoHouse() {
+/** `screen: 'home'` keeps the dashboard on show (it displays the house itself). */
+export async function openDemoHouse(screen: 'workspace' | 'home' = 'workspace') {
   const ui = useUI.getState()
   ui.set({ busy: 'Preparing the demo house…' })
   try {
@@ -142,11 +143,11 @@ export async function openDemoHouse() {
     if (!designs.length) throw new Error('Demo generation failed')
     const p = projectFromDesign(designs[0], req, designs, '10 Marla Demo House')
     dressDemo(p)
-    openProject(p)
-    ui.set({ mode: '3d' })
-    ui.toast({ kind: 'info', title: 'Welcome to the demo house', body: 'Try Walk inside (3) or Drone view. Everything is editable.' })
+    openProject(p, null, screen)
+    if (screen === 'workspace') ui.set({ mode: '3d' })
+    ui.toast({ kind: 'info', title: 'Welcome to the demo house', body: screen === 'home' ? 'It is shown below in 3D and in plan. Everything is editable.' : 'Try Walk inside (3) or Drone view. Everything is editable.' })
   } catch (e) {
-    ui.showError({ what: 'The demo house could not be prepared', why: String((e as Error)?.message ?? e), fix: 'Try again, or create a new house with the wizard.', retry: () => void openDemoHouse() })
+    ui.showError({ what: 'The demo house could not be prepared', why: String((e as Error)?.message ?? e), fix: 'Try again, or create a new house with the wizard.', retry: () => void openDemoHouse(screen) })
   } finally {
     ui.set({ busy: null })
   }

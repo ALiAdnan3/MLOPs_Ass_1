@@ -23,7 +23,8 @@ interface Key {
   exterior: boolean
 }
 
-export const droneState: { playing: boolean; t: number; label: string; recording: boolean; listeners: Set<() => void> } = { playing: false, t: 0, label: '', recording: false, listeners: new Set() }
+/** `path` is the route the next drone flight starts on (the dashboard's tour buttons set it). */
+export const droneState: { playing: boolean; t: number; label: string; recording: boolean; path: DronePath; listeners: Set<() => void> } = { playing: false, t: 0, label: '', recording: false, path: 'full', listeners: new Set() }
 const notify = () => droneState.listeners.forEach((l) => l())
 
 export class DroneController implements Controller {
@@ -44,6 +45,7 @@ export class DroneController implements Controller {
 
   constructor(private engine: Engine) {
     engine.setOptions({ viewMode: 'realistic', showAll: true })
+    this.path = droneState.path
     this.build()
     droneState.playing = true
     notify()
@@ -51,6 +53,7 @@ export class DroneController implements Controller {
 
   setPath(p: DronePath) {
     this.path = p
+    droneState.path = p
     this.t = 0
     this.build()
   }

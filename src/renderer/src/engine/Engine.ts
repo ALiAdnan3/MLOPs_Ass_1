@@ -81,6 +81,8 @@ export class Engine {
   roofDeps: unknown[] = []
   controller: Controller | null = null
   container: HTMLElement | null = null
+  /** Off-screen renders in progress (design cards, tiles): the visible view is not redrawn meanwhile, so it never flashes another house. */
+  holds = 0
   night = 0
   private needs = true
   private interacting = 0
@@ -557,6 +559,8 @@ export class Engine {
   flyTo(pos: THREE.Vector3, target: THREE.Vector3, dur = 0.9) {
     this.useOrtho(false)
     if (dur <= 0) {
+      // an instant move also cancels any flight still under way
+      this.flight = null
       this.camera.position.copy(pos)
       this.controls.target.copy(target)
       this.controls.update()
@@ -629,11 +633,14 @@ export class Engine {
       case 'interior':
       case 'room': {
         const rooms = active?.rooms.filter((r) => spec(r.type).walkable && !spec(r.type).outdoor && r.type !== 'garage') ?? []
-        const room = (roomId && active?.rooms.find((r) => r.id === roomId)) || rooms.sort((x, y) => area(y.polygon) - area(x.polygon))[0]
+        // the named room may sit on another floor than the one on show
+        const owner = roomId ? floors.find((f) => f.rooms.some((r) => r.id === roomId)) : undefined
+        const room = owner?.rooms.find((r) => r.id === roomId) || rooms.sort((x, y) => area(y.polygon) - area(x.polygon))[0]
         if (!room) return
+        const y = owner ? (el.get(owner.id) ?? 0) + 1.6 : eye
         const rb = bbox(room.polygon)
-        const corner = new THREE.Vector3(rb.x + rb.w * 0.12, eye, rb.y + rb.h * 0.12)
-        const target = new THREE.Vector3(rb.x + rb.w * 0.85, eye - 0.35, rb.y + rb.h * 0.85)
+        const corner = new THREE.Vector3(rb.x + rb.w * 0.12, y, rb.y + rb.h * 0.12)
+        const target = new THREE.Vector3(rb.x + rb.w * 0.85, y - 0.35, rb.y + rb.h * 0.85)
         this.flyTo(corner, target, dur)
         this.controls.maxPolarAngle = Math.PI
         break
@@ -758,7 +765,7 @@ export class Engine {
     this.raf = requestAnimationFrame(this.loop)
     this.timer.update()
     const dt = Math.min(0.1, this.timer.getDelta())
-    if (!this.container || this.contextLost) return
+    if (!this.container || this.contextLost || this.holds > 0) return
     let dirty = this.needs
     if (this.flight) {
       const f = this.flight
@@ -788,8 +795,12 @@ export class Engine {
     else this.renderer.render(this.scene, this.active)
   }
 
-  /** Render the current view (or a given camera pose) to an image. */
-  async snapshot(opts: { width?: number; height?: number; type?: 'image/png' | 'image/jpeg'; quality?: number; pose?: { position: THREE.Vector3; target: THREE.Vector3; fov?: number } } = {}): Promise<Blob> {
+  /**
+   * Render the current view (or a given camera pose) to an image. Rendering, capture and restoring
+   * the camera all happen before this returns; only the encoding is asynchronous, so nothing that
+   * moves the camera in the meantime (orbit spin, the user) is undone afterwards.
+   */
+  snapshot(opts: { width?: number; height?: number; type?: 'image/png' | 'image/jpeg'; quality?: number; pose?: { position: THREE.Vector3; target: THREE.Vector3; fov?: number } } = {}): Promise<Blob> {
     const size = this.renderer.getSize(new THREE.Vector2())
     const w = opts.width ?? size.x
     const h = opts.height ?? size.y
@@ -810,7 +821,8 @@ export class Engine {
     this.composer?.setSize(w, h)
     if (opts.pose) this.placeNightLights(this.night)
     this.renderFrame()
-    const blob = await new Promise<Blob>((resolve, reject) => this.canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('snapshot failed'))), opts.type ?? 'image/png', opts.quality ?? 0.92))
+    // toBlob copies the canvas immediately and encodes in the background
+    const blob = new Promise<Blob>((resolve, reject) => this.canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('snapshot failed'))), opts.type ?? 'image/png', opts.quality ?? 0.92))
     this.camera.position.copy(prevPos)
     this.controls.target.copy(prevTarget)
     this.camera.fov = prevFov
@@ -819,6 +831,7 @@ export class Engine {
     this.renderer.setPixelRatio(prevRatio)
     this.resize()
     this.controls.update()
+    if (opts.pose) this.placeNightLights(this.night)
     this.invalidate()
     return blob
   }

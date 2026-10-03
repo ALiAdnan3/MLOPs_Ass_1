@@ -11,7 +11,7 @@ import { useProject } from '../state/store'
 export function DronePanel() {
   const [, force] = useState(0)
   const [show, setShow] = useState(false)
-  const [path, setPath] = useState<DronePath>('full')
+  const [path, setPath] = useState<DronePath>(droneState.path)
   const [speed, setSpeed] = useState(1)
   const [height, setHeight] = useState(0)
   const cameras = useProject((s) => s.project.cameras)

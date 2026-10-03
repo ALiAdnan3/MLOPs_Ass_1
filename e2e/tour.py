@@ -43,8 +43,13 @@ def main() -> int:
         page.wait_for_timeout(2500)
         if want("home"):
             page.screenshot(path=str(OUT / "01-home.png"))
-        page.get_by_text("Try demo house").click()
+        page.get_by_role("button", name="Demo house", exact=True).click()
         page.wait_for_timeout(6000)
+        if want("dashboard"):
+            page.wait_for_timeout(8000)
+            page.screenshot(path=str(OUT / "01b-dashboard.png"))
+        page.get_by_role("button", name="Design", exact=True).click()
+        page.wait_for_timeout(1500)
         shots = [
             ("plan", "Plan", 1500),
             ("3d", "3D", 7000),
@@ -52,7 +57,7 @@ def main() -> int:
             ("interior", "Interior", 5000),
             ("exterior", "Exterior", 5000),
             ("sketch", "Sketch", 1500),
-            ("walk", "Walk", 4000),
+            ("walk", "Walkthrough", 4000),
             ("drone", "Drone", 4000),
             ("present", "Present", 12000),
         ]
