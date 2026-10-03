@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { Sky } from 'three/examples/jsm/objects/Sky.js'
+import { GradientSky } from './lighting/GradientSky'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
@@ -15,7 +15,7 @@ import { buildPitchedRoof } from './builders/roof'
 import { floorElevations, sortedFloors } from '../core/model/house'
 import { sunDirection, nightFactor } from './lighting/sun'
 import { surfaceAt, surfaceGeometry } from './MeshBuilder'
-import { bbox, area } from '../core/geometry/polygon'
+import { bbox, area, pointInPolygon } from '../core/geometry/polygon'
 import { spec } from '../core/constraints/rooms'
 import type { CameraPreset, ViewMode3D } from '../state/ui'
 
@@ -71,7 +71,7 @@ export class Engine {
   helpers = new THREE.Group()
   sun = new THREE.DirectionalLight('#fff3e0', 3)
   hemi = new THREE.HemisphereLight('#dfe9f5', '#6b6a58', 0.9)
-  sky = new Sky()
+  sky = new GradientSky()
   stars: THREE.Points
   project: Project | null = null
   options: EngineOptions = { floorId: '', showAll: true, viewMode: 'realistic', explodeGap: 0, doorsOpen: true, showFurniture: true, showStructure: true }
@@ -94,6 +94,8 @@ export class Engine {
   private selectMesh: THREE.Mesh | null = null
   private clip = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e6)
   private envTex: THREE.Texture | null = null
+  private skyEnv: { scene: THREE.Scene; sky: GradientSky; rt: THREE.WebGLRenderTarget | null; key: string } | null = null
+  private skyState = { warm: 0, night: 0 }
   private flight: { from: THREE.Vector3; to: THREE.Vector3; tFrom: THREE.Vector3; tTo: THREE.Vector3; t: number; dur: number } | null = null
   private lastLook: string | null = null
   private explodeCurrent = 0
@@ -148,7 +150,6 @@ export class Engine {
 
     this.scene.add(this.root)
     this.root.add(this.houseRoot, this.siteRoot, this.roofRoot, this.nightLights, this.helpers)
-    this.sky.scale.setScalar(4000)
     this.scene.add(this.sky)
     this.sun.castShadow = true
     this.sun.shadow.bias = -0.0004
@@ -255,7 +256,7 @@ export class Engine {
       this.gtao.blendIntensity = 0.8
       this.composer.addPass(this.gtao)
     }
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.6, 0.5, 0.85)
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.3, 0.45, 0.92)
     this.composer.addPass(this.bloom)
     this.composer.addPass(new OutputPass())
   }
@@ -388,32 +389,85 @@ export class Engine {
     this.sun.color.setHSL(0.09, 0.2 + warm * 0.6, 0.92 - warm * 0.18)
     this.sun.intensity = night >= 1 ? 0 : (1 - night) * (1.4 + Math.min(1, d.altitude / 40) * 2.4)
     this.sun.visible = this.sun.intensity > 0.01
-    this.hemi.intensity = 0.15 + (1 - night) * 0.85
+    // the sky environment map already supplies daylight ambient; the hemisphere only fills in
+    this.hemi.intensity = 0.12 + (1 - night) * 0.38
     this.hemi.color.set(night > 0.5 ? '#3a4a6a' : '#dfe9f5')
     this.hemi.groundColor.set(night > 0.5 ? '#1a1a1e' : '#6b6a58')
-    const u = this.sky.material.uniforms
-    u['turbidity'].value = 3.2 + warm * 5
-    u['rayleigh'].value = 1.7 + warm * 1.3
-    u['mieCoefficient'].value = 0.004
-    u['mieDirectionalG'].value = 0.8
-    u['sunPosition'].value.copy(new THREE.Vector3(d.x, d.y, d.z))
-    this.sky.visible = night < 0.95
-    this.scene.background = night >= 0.95 ? new THREE.Color('#070b14') : null
+    this.sky.update(new THREE.Vector3(d.x, d.y, d.z), warm, night)
+    this.skyState = { warm, night }
+    this.sky.visible = true
+    this.scene.background = null
     ;(this.stars.material as THREE.PointsMaterial).opacity = Math.max(0, night - 0.4)
     const fogColor = new THREE.Color().setHSL(0.58, 0.25, 0.8 - night * 0.72)
     ;(this.scene.fog as THREE.Fog).color = fogColor
-    this.renderer.toneMappingExposure = this.options.viewMode === 'architectural' ? 1.05 : 0.95 + night * 0.25
-    this.scene.environmentIntensity = 0.25 + (1 - night) * 0.55
-    if (this.bloom) this.bloom.strength = 0.08 + night * 0.7
+    this.renderer.toneMappingExposure = this.options.viewMode === 'architectural' ? 1.05 : 0.84 + night * 0.06
+    this.updateSkyEnvironment(night)
+    if (this.bloom) this.bloom.strength = 0.04 + night * 0.32
     // emissive fixtures glow at night
     const lightsOn = L.interiorLights
-    const glow = 0.15 + night * 2.6
+    const glow = 0.15 + night * 1.1
+    const windowGlow = lightsOn ? Math.max(0, night - 0.15) * 2.2 : 0
     this.root.traverse((o) => {
-      const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined
-      if (m && m.userData?.emissiveLight) m.emissiveIntensity = lightsOn || night < 0.2 ? glow : 0.05
+      const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[] | undefined
+      for (const m of Array.isArray(mm) ? mm : mm ? [mm] : []) {
+        if (m.userData?.emissiveLight) m.emissiveIntensity = lightsOn || night < 0.2 ? glow : 0.05
+        if (m.userData?.windowGlow) m.emissiveIntensity = windowGlow
+      }
     })
     this.placeNightLights(night)
     this.invalidate()
+  }
+
+  /**
+   * Image-based lighting from the actual sky: ambient colour and reflections follow the sun and
+   * time of day. Re-baked only when the sun moves; the neutral studio environment takes over
+   * at night so interiors stay readable.
+   */
+  private lastInside = false
+  private insideCheck = 0
+
+  /** Is the camera inside a room of a visible floor? */
+  cameraInside(): boolean {
+    const p = this.project
+    if (!p) return false
+    const pos = this.active === this.camera ? this.camera.position : this.ortho.position
+    for (const f of p.floors) {
+      const e = this.floors.get(f.id)
+      if (!e || !e.build.group.visible) continue
+      const y = e.build.group.position.y
+      if (pos.y < y || pos.y > y + f.height) continue
+      if (f.rooms.some((r) => r.type !== 'void' && !spec(r.type).outdoor && pointInPolygon({ x: pos.x, y: pos.z }, r.polygon))) return true
+    }
+    return false
+  }
+
+  private updateSkyEnvironment(night: number) {
+    if (night > 0.8 || this.options.viewMode === 'architectural') {
+      this.scene.environment = this.envTex
+      this.scene.environmentIntensity = this.options.viewMode === 'architectural' ? 0.8 : 0.1 + (1 - night) * 0.6
+      return
+    }
+    const su = this.sky.material.uniforms
+    const sp = su.sunDir.value as THREE.Vector3
+    const key = `${sp.x.toFixed(2)},${sp.y.toFixed(2)},${sp.z.toFixed(2)},${this.skyState.warm.toFixed(2)},${this.skyState.night.toFixed(2)}`
+    if (!this.skyEnv) {
+      const scene = new THREE.Scene()
+      const sky = new GradientSky(50)
+      scene.add(sky)
+      this.skyEnv = { scene, sky, rt: null, key: '' }
+    }
+    const e = this.skyEnv
+    if (e.key !== key) {
+      e.key = key
+      e.sky.update(sp, this.skyState.warm, this.skyState.night)
+      const pm = new THREE.PMREMGenerator(this.renderer)
+      const rt = pm.fromScene(e.scene, 0.02, 0.1, 200)
+      pm.dispose()
+      e.rt?.dispose()
+      e.rt = rt
+    }
+    this.scene.environment = e.rt!.texture
+    this.scene.environmentIntensity = 0.85 + (1 - night) * 0.35
   }
 
   private placeNightLights(night: number) {
@@ -425,6 +479,9 @@ export class Engine {
     if (!p) return
     const L = p.settings.lighting
     const budget = QUALITY[this.quality].lights
+    // point lights cast no shadows, so seen from outside they would shine through walls and
+    // roofs; outside, lit rooms show through their glowing windows instead
+    this.lastInside = this.cameraInside()
     // basements are lit whatever the time of day (§26)
     const interior: { pos: THREE.Vector3; warm: boolean; basement: boolean; intensity: number; kelvin?: number }[] = []
     for (const e of this.floors.values()) {
@@ -442,6 +499,7 @@ export class Engine {
       for (const l of interior) {
         if (used >= budget) break
         if (night < 0.25 && !l.basement) continue
+        if (!this.lastInside) continue
         const color = l.kelvin ? kelvinColor(l.kelvin) : l.warm ? '#ffd9a6' : '#fff4e6'
         const pl = new THREE.PointLight(color, (l.basement ? 5 : 3 + night * 5) * l.intensity, 7, 1.6)
         pl.position.copy(l.pos)
@@ -455,7 +513,7 @@ export class Engine {
       for (const l of this.site.build.lights) {
         if (ext >= Math.ceil(budget / 2)) break
         if (l.kind === 'wash') {
-          const s = new THREE.SpotLight(extColor, 30 * night, 9, 0.5, 0.6, 1.5)
+          const s = new THREE.SpotLight(extColor, 11 * night, 8, 0.45, 0.7, 1.6)
           s.position.copy(l.p)
           s.target.position.copy(l.p).add(new THREE.Vector3(0, 5, -0.8))
           this.nightLights.add(s, s.target)
@@ -719,6 +777,8 @@ export class Engine {
     }
     if (!dirty) return
     this.needs = false
+    // walking in or out of the house at night swaps interior lights on/off
+    if (this.night > 0.25 && ++this.insideCheck % 15 === 0 && this.cameraInside() !== this.lastInside) this.placeNightLights(this.night)
     this.renderFrame()
     this.onFrame?.()
   }

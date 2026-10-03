@@ -458,6 +458,27 @@ function buildOpening(mb: MeshBuilder, glassMb: MeshBuilder, ctx: BuildContext, 
     glassMb.use(mats.get(o.style === 'ventilator' ? 'lib:glass-frosted' : 'lib:glass-clear'), surf, { castShadow: false })
     const g = at(0, 0, s0 + Hh / 2)
     glassMb.box(g[0], g[1], g[2], W - 2 * fr, Hh - 2 * fr, 0.01, rot)
+    // the lit interior seen through an outside window: dark by day, warm glow at dusk and night.
+    // A single outward-facing quad, so it is invisible from inside the room.
+    const sides = (['left', 'right'] as const).map((sd) => ({ sd, room: roomAt(w, sd, o.offset) }))
+    const inner = sides.find((x) => x.room && !spec(x.room.type).outdoor && x.room.type !== 'void')
+    const outer = sides.find((x) => x !== inner)
+    if (inner && (!outer?.room || spec(outer.room.type).outdoor)) {
+      const sgn = inner.sd === 'left' ? 1 : -1
+      const lit = inner.room!.lighting?.on !== false
+      const gm = mats.flat('#0d131b', 'house', { roughness: 1, emissive: new THREE.Color(lit ? '#ffcf91' : '#000000'), emissiveIntensity: 0 })
+      gm.userData.windowGlow = lit
+      mb.use(gm, null, { castShadow: false, receiveShadow: false })
+      const d0 = sgn * (th / 2 + 0.55)
+      const hw = (W - 2 * fr) / 2
+      const y0 = s0 + fr
+      const y1 = s0 + Hh - fr
+      const q = [at(-hw, d0, y0), at(hw, d0, y0), at(hw, d0, y1), at(-hw, d0, y1)]
+      const nn: [number, number, number] = [-sgn * f.n.x, 0, -sgn * f.n.y]
+      const uv: [number, number][] = [[0, 0], [1, 0], [1, 1], [0, 1]]
+      if (sgn === 1) mb.face([q[3], q[2], q[1], q[0]], [uv[3], uv[2], uv[1], uv[0]], nn)
+      else mb.face(q, uv, nn)
+    }
     // curtains on the room side
     for (const side of ['left', 'right'] as const) {
       const room = roomAt(w, side, o.offset)
