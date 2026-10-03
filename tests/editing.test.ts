@@ -94,3 +94,23 @@ describe('natural language editing (offline)', () => {
     expect(r.message).toMatch(/Kitchen is .+ ×/)
   })
 })
+
+describe('§72 finishes by instruction', () => {
+  beforeEach(() => {
+    loadHouse()
+  })
+  it('floor → marble, walls → paint, TV wall → stone, stairs → wood', async () => {
+    const lounge = roomsOf(getProject()).find((r) => r.type === 'tv_lounge' || r.type === 'living' || r.type === 'family')!
+    for (const t of [`Use marble on the ${lounge.name} floor`, `Paint the ${lounge.name} walls white`, `Make the TV wall in the ${lounge.name} stone`, 'Use wood for the stairs']) {
+      const r = await applyEditPlan(parseEditOffline(t, getProject(), useUI.getState().floorId), t)
+      console.log(`${t} → ${r.message}`)
+      expect(r.ok).toBe(true)
+    }
+    const p = getProject()
+    const l2 = roomsOf(p).find((r) => r.id === lounge.id)!
+    expect(l2.floorMaterial).toMatch(/marble/)
+    expect(l2.wallMaterial).toMatch(/paint/)
+    expect(p.floors.some((f) => f.walls.some((w) => Object.values(w.sideMaterials ?? {}).some((m) => m && /stone/.test(m))))).toBe(true)
+    expect(p.floors.flatMap((f) => f.stairs).every((s) => /wood/.test(s.material ?? ''))).toBe(true)
+  })
+})

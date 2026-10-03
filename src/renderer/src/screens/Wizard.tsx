@@ -9,7 +9,8 @@ import type { ArchitecturalStyle, Compass, FloorsOption, LengthUnit, Preferences
 import { Seg, Slider, Stepper, Switch, BrandMark } from '../ui/primitives'
 import { northAngle } from '../engine/lighting/sun'
 import { levelsFor } from '../planner/generator/program'
-import { DISCLAIMER } from '../core/model/defaults'
+import { DISCLAIMER, exteriorForStyle } from '../core/model/defaults'
+import { resolveMaterial, materialSwatch } from '../core/materials/library'
 
 const STEPS = ['Plot', 'Floors', 'Rooms', 'Outdoor', 'Special', 'Style', 'Preferences', 'Review']
 
@@ -24,7 +25,7 @@ const FLOOR_OPTIONS: { v: FloorsOption; t: string; d: string }[] = [
 ]
 
 const ROOMS: { k: keyof RoomCounts; t: string }[] = [
-  { k: 'bedrooms', t: 'Bedrooms (total)' },
+  { k: 'bedrooms', t: 'Family bedrooms' },
   { k: 'masterBedrooms', t: 'Master bedrooms' },
   { k: 'guestBedrooms', t: 'Guest bedrooms' },
   { k: 'bathrooms', t: 'Bathrooms' },
@@ -330,7 +331,7 @@ function RoomsStep() {
   return (
     <>
       <h2>Rooms</h2>
-      <p className="lead">Set how many of each room you need. Master bedrooms and guest bedrooms are counted within the bedroom total; bathrooms are attached to bedrooms first.</p>
+      <p className="lead">Set how many of each room you need. Master bedrooms and kids rooms count within the bedroom total; guest bedrooms come in addition. Bathrooms are attached to bedrooms first.</p>
       <div className="form-grid">
         {ROOMS.map((r) => (
           <div key={r.k} className="counter-row">
@@ -412,6 +413,7 @@ function StyleStep() {
       <div className="option-grid">
         {STYLES.map((o) => (
           <button key={o.v} className={`option ${w.req.style === o.v ? 'on' : ''}`} onClick={() => w.setReq((r) => (r.style = o.v))}>
+            <StyleChips style={o.v} />
             <span className="t">{o.t}</span>
             <span className="d">{o.d}</span>
           </button>
@@ -424,6 +426,19 @@ function StyleStep() {
         </div>
       )}
     </>
+  )
+}
+
+/** The style's real facade, cladding, plinth and roof finishes as a small palette strip. */
+function StyleChips({ style }: { style: ArchitecturalStyle }) {
+  const e = exteriorForStyle(style)
+  const ids = [e.facadeMaterial, e.accentMaterial, e.plinthMaterial, e.roofType === 'flat' ? e.windowFrameMaterial : e.roofMaterial]
+  return (
+    <span className="style-chips" aria-hidden>
+      {ids.map((id, i) => (
+        <i key={i} style={{ background: materialSwatch(resolveMaterial(id, [])) }} />
+      ))}
+    </span>
   )
 }
 

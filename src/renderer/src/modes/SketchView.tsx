@@ -26,6 +26,8 @@ export function SketchView() {
   const wrap = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const plot = useProject((s) => s.project.plot)
+  const floorId = useUI((s) => s.floorId)
+  const floor = useProject((s) => s.project.floors.find((f) => f.id === floorId))
   const theme = useUI((s) => s.theme)
   const st = useSketch()
   const [view, setView] = useState<View>({ scale: 20, ox: 40, oy: 40 })
@@ -176,6 +178,30 @@ export function SketchView() {
     g.font = "500 11px 'Archivo Variable', sans-serif"
     g.textAlign = 'center'
     g.fillText('Road side', road.x, road.y)
+    // the existing plan of this floor, faint, so new rooms can be drawn against it
+    if (floor?.rooms.length && st.mode === 'add') {
+      for (const r of floor.rooms) {
+        if (r.type === 'void') continue
+        g.beginPath()
+        r.polygon.forEach((p, i) => {
+          const q = S(p)
+          if (i) g.lineTo(q.x, q.y)
+          else g.moveTo(q.x, q.y)
+        })
+        g.closePath()
+        g.fillStyle = dark ? 'rgba(230,232,234,0.05)' : 'rgba(27,31,36,0.04)'
+        g.fill()
+        g.strokeStyle = dark ? 'rgba(230,232,234,0.35)' : 'rgba(27,31,36,0.35)'
+        g.lineWidth = 2
+        g.stroke()
+        const c = S(centroid(r.polygon))
+        g.fillStyle = dark ? 'rgba(230,232,234,0.45)' : 'rgba(27,31,36,0.45)'
+        g.font = "500 11px 'Archivo Variable', sans-serif"
+        g.textAlign = 'center'
+        g.textBaseline = 'middle'
+        g.fillText(r.name, c.x, c.y)
+      }
+    }
     // imported sketch photo
     if (st.image && imgEl.current?.complete) {
       const tl = S({ x: st.image.x, y: st.image.y })
@@ -296,6 +322,8 @@ export function SketchView() {
       }
     }
     if (st.tool === 'text') {
+      // keep focus off the canvas so the label field that appears keeps it
+      e.preventDefault()
       setTextAt({ world: w, screen: sp })
       setTextVal('')
       return
@@ -362,19 +390,37 @@ export function SketchView() {
     })
   }
 
+  // test hook (?e2e): plan metres → page pixels for scripted drawing
+  useEffect(() => {
+    const hf = (window as unknown as { __hf?: Record<string, unknown> }).__hf
+    if (!hf) return
+    hf.sketchToScreen = (p: Vec2) => {
+      const r = wrap.current!.getBoundingClientRect()
+      return { x: r.left + p.x * view.scale + view.ox, y: r.top + p.y * view.scale + view.oy }
+    }
+  }, [view])
+
   const askRoom = ask ? st.result?.rooms.find((r) => r.id === ask.id) : undefined
   return (
     <div ref={wrap} style={{ position: 'absolute', inset: 0, touchAction: 'none', cursor: st.tool === 'pan' ? 'grab' : st.tool === 'text' ? 'text' : st.tool === 'eraser' ? 'cell' : 'crosshair' }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onWheel={onWheel} aria-label="Sketch canvas">
       <canvas ref={canvas} style={{ width: '100%', height: '100%', display: 'block' }} />
-      {!st.strokes.length && !st.image && !st.texts.length && (
+      {!st.strokes.length && !st.image && !st.texts.length && !(floor?.rooms.length && st.mode === 'add') && (
         <div className="overlay faint" style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', pointerEvents: 'none', maxWidth: 380 }}>
           <div style={{ fontSize: 15, color: 'var(--text-2)', marginBottom: 6 }}>Draw your house inside the plot</div>
           Draw room outlines with the pen; leave a gap or draw an arc for a door. Use the Label tool to type room names like “Bedroom” or “Kitchen 10x12”. Or drop a photo of a paper sketch here.
         </div>
       )}
+      {!!floor?.rooms.length && st.mode === 'add' && !st.result && (
+        <div className="overlay float-bar" style={{ top: 12, left: '50%', transform: 'translateX(-50%)', padding: '6px 12px', fontSize: 12, color: 'var(--text-2)', pointerEvents: 'none' }}>
+          Draw new rooms against the {floor.name.toLowerCase()} floor plan. Lines snap to its walls.
+        </div>
+      )}
       {textAt && (
         <input
           autoFocus
+          ref={(el) => {
+            if (el) setTimeout(() => el.focus(), 0)
+          }}
           className="field"
           style={{ position: 'absolute', left: textAt.screen.x - 70, top: textAt.screen.y - 14, width: 140, zIndex: 5 }}
           placeholder="Bedroom, Kitchen 10x12…"

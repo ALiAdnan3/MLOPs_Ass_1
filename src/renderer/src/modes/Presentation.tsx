@@ -243,7 +243,8 @@ function usedMaterials(p: Project): { m: MaterialDef; where: string[] }[] {
   return [...map.entries()]
     .map(([id, w]) => ({ m: resolveMaterial(id, p.materials)!, where: [...w] }))
     .filter((x) => x.m)
-    .sort((a, b) => b.where.length - a.where.length)
+    // the owner's own photos and customised finishes first, then the most used
+    .sort((a, b) => Number(b.m.source !== 'library') - Number(a.m.source !== 'library') || b.where.length - a.where.length)
     .slice(0, 12)
 }
 

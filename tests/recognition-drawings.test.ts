@@ -98,3 +98,34 @@ describe('drawing output (§32, §33)', () => {
     writeFileSync('test-results/sheets/ground-floor.dxf', txt)
   })
 })
+
+describe('sketch: add a room to an existing house (§72)', () => {
+  it('adds a sketched room behind the house with a door, windows and furniture', async () => {
+    const { useSketch, runRecognition } = await import('@/modes/sketchState')
+    const { addRecognizedRooms } = await import('@/ai/sketchRecognizer')
+    const d = generateDesign(defaultRequirements(), plotFromPreset('1-kanal'), 'family', { settings: defaultSettings(), seed: 3, iterations: 900 })
+    const floor = structuredClone(d.house.floors.find((f) => f.level === 0)!)
+    const site = structuredClone(d.house.site)
+    const house = floor.rooms.filter((r) => !['garage', 'terrace', 'courtyard'].includes(r.type)).flatMap((r) => r.polygon)
+    const top = Math.min(...house.map((p) => p.y))
+    const left = Math.min(...house.map((p) => p.x))
+    // a 4 m × 3.5 m study drawn behind the house, sharing its rear wall
+    const x0 = left + 1
+    const s = [hand({ x: x0, y: top }, { x: x0, y: top - 3.5 }, 1), hand({ x: x0, y: top - 3.5 }, { x: x0 + 4, y: top - 3.5 }, 2), hand({ x: x0 + 4, y: top - 3.5 }, { x: x0 + 4, y: top }, 3)]
+    useSketch.getState().set({ strokes: s, texts: [{ p: { x: x0 + 2, y: top - 1.7 }, text: 'Study' }], mode: 'add', image: null })
+    const plan = runRecognition(floor)
+    console.log(plan.notes.join(' | '), plan.rooms.map((r) => r.name))
+    expect(plan.rooms.length).toBe(1)
+    expect(plan.rooms[0].type).toBe('study')
+    const before = floor.rooms.length
+    const res = addRecognizedRooms(plan, floor, defaultSettings(), site)
+    console.log('warnings:', res.warnings.join(' | ') || 'none')
+    expect(floor.rooms.length).toBe(before + 1)
+    const study = floor.rooms.find((r) => r.type === 'study')!
+    expect(study).toBeTruthy()
+    const b = { w: Math.max(...study.polygon.map((p) => p.x)) - Math.min(...study.polygon.map((p) => p.x)), h: Math.max(...study.polygon.map((p) => p.y)) - Math.min(...study.polygon.map((p) => p.y)) }
+    expect(b.w).toBeGreaterThan(3.5)
+    expect(b.h).toBeGreaterThan(3)
+    expect(floor.furniture.length).toBeGreaterThan(0)
+  })
+})

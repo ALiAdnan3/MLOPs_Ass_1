@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { RoomType, Vec2 } from '../core/model/types'
+import type { Floor, RoomType, Vec2 } from '../core/model/types'
+import { area, overlapArea } from '../core/geometry/polygon'
 import type { InkStroke, RecognizedPlan, TextMark } from '../ai/sketchRecognizer'
 import { recognize, vectorizeStrokes, segmentsFromImage } from '../ai/sketchRecognizer'
 import type { Seg } from '../core/geometry/planar'
@@ -30,6 +31,8 @@ interface SketchState {
   confirmed: string[]
   gridM: number
   focusRoom: string | null
+  /** 'add' draws extra rooms onto the current floor; 'replace' redraws the whole floor. */
+  mode: 'add' | 'replace'
   set: (p: Partial<SketchState>) => void
   addStroke: (s: InkStroke) => void
   addText: (t: TextMark) => void
@@ -48,6 +51,7 @@ export const useSketch = create<SketchState>((set, get) => ({
   confirmed: [],
   gridM: 0.3048,
   focusRoom: null,
+  mode: 'add',
   set: (p) => set(p),
   addStroke: (s) => set({ strokes: [...get().strokes, s], redo: [], result: null }),
   addText: (t) => set({ texts: [...get().texts, t], redo: [], result: null }),
@@ -69,10 +73,13 @@ export const useSketch = create<SketchState>((set, get) => ({
 }))
 
 /** Run recognition on the current ink (and imported sketch image, if any). */
-export function runRecognition(): RecognizedPlan {
+export function runRecognition(floor?: Floor): RecognizedPlan {
   const st = useSketch.getState()
   const { segs, arcs } = vectorizeStrokes(st.strokes)
   const all: Seg[] = [...segs]
+  // adding to a floor: existing room edges are exact anchors the new lines snap to
+  const anchors: Seg[] = st.mode === 'add' && floor ? floor.rooms.flatMap((r) => r.polygon.map((p, i) => ({ a: p, b: r.polygon[(i + 1) % r.polygon.length] }))) : []
+  all.push(...anchors)
   let thin: Seg[] = []
   if (st.image) {
     const im = segmentsFromImage(st.image.data)
@@ -80,7 +87,18 @@ export function runRecognition(): RecognizedPlan {
     all.push(...im.segs.map((s) => ({ a: T(s.a), b: T(s.b) })))
     thin = im.thin.map((s) => ({ a: T(s.a), b: T(s.b) }))
   }
-  const result = recognize(all, { tol: st.image ? Math.max(0.2, st.image.mpp * 8) : 0.35, arcs, texts: st.texts, windowMarks: thin.filter((s) => Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y) > 0.5) })
+  const result = recognize(all, { tol: st.image ? Math.max(0.2, st.image.mpp * 8) : 0.35, arcs, texts: st.texts, noScale: anchors.length > 0, windowMarks: thin.filter((s) => Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y) > 0.5) })
+  if (anchors.length && floor) {
+    // keep only genuinely new rooms (faces that are not existing rooms)
+    const olds = floor.rooms.map((r) => r.polygon)
+    result.rooms = result.rooms.filter((r) => {
+      const a = area(r.polygon)
+      const covered = olds.reduce((sum, o) => sum + overlapArea(r.polygon, o), 0)
+      return covered < a * 0.3
+    })
+    result.walls = segs.length ? result.walls : []
+    result.notes[0] = `Found ${result.rooms.length} new room${result.rooms.length === 1 ? '' : 's'} next to the existing plan.`
+  }
   st.set({ result, confirmed: [] })
   return result
 }

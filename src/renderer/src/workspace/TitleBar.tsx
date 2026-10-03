@@ -51,6 +51,7 @@ export function TitleBar() {
       { separator: true },
       { label: 'Import floor plan image…', onClick: () => openDialog('import-plan') },
       { label: 'Generate alternatives…', onClick: () => openDialog('alternatives') },
+      { label: 'Concept images…', onClick: () => openDialog('concepts') },
       { label: 'Regenerate from requirements…', onClick: () => openDialog('requirements') },
       { separator: true },
       { label: 'Project settings…', onClick: () => openDialog('settings') },

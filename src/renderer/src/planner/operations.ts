@@ -1,7 +1,7 @@
 import type { Floor, Opening, Project, ProjectSettings, Room, RoomType, Vec2, Wall } from '../core/model/types'
 import { deepClone } from '../core/clone'
 import { uid, type IdFactory } from '../core/model/ids'
-import { bbox, isAxisRect, rectPoly, removeCollinear, unionPolys, intersectPolys, area, pointInPolygon, type Rect } from '../core/geometry/polygon'
+import { bbox, isAxisRect, rectPoly, removeCollinear, unionPolys, intersectPolys, differencePolys, area, pointInPolygon, type Rect } from '../core/geometry/polygon'
 import { rebuildWalls, lineOverlap, effectiveKind } from './walls'
 import { spec } from '../core/constraints/rooms'
 import { segLength, projectT } from '../core/geometry/segment'
@@ -115,10 +115,31 @@ export function moveRoomEdge(floor: Floor, roomId: string, side: Side, delta: nu
       const hasEdge = r.polygon.some((p) => Math.abs((vertical ? p.x : p.y) - coord) < 1e-3)
       if (!hasEdge) continue
       // only neighbours that sit on the other side of the moved edge (or share the same side in a stack)
+      const onLowSide = Math.abs((vertical ? rb.x + rb.w : rb.y + rb.h) - coord) < 1e-3
+      const onHighSide = Math.abs((vertical ? rb.x : rb.y) - coord) < 1e-3
+      const partial = rlo < lo - 0.01 || rhi > hi + 0.01
+      if (partial && (onLowSide || onHighSide)) {
+        // the neighbour only partly shares this edge: take (or give) just the shared stretch, so
+        // its other walls — and the doors and adjacencies on them — stay exactly where they were
+        const s0 = Math.max(lo, rlo)
+        const s1 = Math.min(hi, rhi)
+        const c0 = Math.min(coord, coord + delta)
+        const c1 = Math.max(coord, coord + delta)
+        const strip = rectPoly(vertical ? { x: c0, y: s0, w: c1 - c0, h: s1 - s0 } : { x: s0, y: c0, w: s1 - s0, h: c1 - c0 })
+        const invaded = (onLowSide && delta < 0) || (onHighSide && delta > 0)
+        const pieces = invaded ? differencePolys(r.polygon, strip) : unionPolys([r.polygon, strip])
+        const best = pieces.filter((x) => !x.holes.length).sort((a, b) => area(b.outer) - area(a.outer))[0]
+        if (!best) return { ok: false, reason: `${r.name} would be split in two`, moved: [] }
+        const nb2 = bbox(best.outer)
+        if (Math.min(nb2.w, nb2.h) < 0.6) return { ok: false, reason: `${r.name} would become too small`, moved: [] }
+        r.polygon = removeCollinear(best.outer.map((q) => ({ x: Math.round(q.x * 1e4) / 1e4, y: Math.round(q.y * 1e4) / 1e4 })), 1e-4)
+        moved.push(r.id)
+        continue
+      }
       if (isAxisRect(r.polygon)) {
         const nr = { ...rb }
-        const onLow = Math.abs((vertical ? rb.x + rb.w : rb.y + rb.h) - coord) < 1e-3
-        const onHigh = Math.abs((vertical ? rb.x : rb.y) - coord) < 1e-3
+        const onLow = onLowSide
+        const onHigh = onHighSide
         if (onLow) {
           if (vertical) nr.w += delta
           else nr.h += delta

@@ -26,7 +26,7 @@ export function buildSite(h: HouseState, mats: MaterialManager, plinth: number):
   group.name = 'site'
 
   // surrounding ground
-  const groundMat = mats.get('lib:grass-lawn', 'site')
+  const groundMat = mats.get('lib:grass-field', 'site')
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), groundMat)
   ground.rotation.x = -Math.PI / 2
   ground.position.set(pb.x + pb.w / 2, -0.02, pb.y + pb.h / 2)
@@ -34,6 +34,7 @@ export function buildSite(h: HouseState, mats: MaterialManager, plinth: number):
   const g = ground.geometry as THREE.PlaneGeometry
   const uv = g.getAttribute('uv') as THREE.BufferAttribute
   for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 600, uv.getY(i) * 600)
+  uv.needsUpdate = true
   ground.userData.surface = null
   group.add(ground)
 

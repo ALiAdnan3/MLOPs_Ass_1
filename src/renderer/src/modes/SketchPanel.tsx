@@ -3,7 +3,7 @@ import { PenLine, Eraser, Type, Hand, Undo2, Trash2, ScanLine, ImagePlus, Box, M
 import { useSketch, runRecognition, type SketchTool } from './sketchState'
 import { useProject, commit, getProject } from '../state/store'
 import { useUI } from '../state/ui'
-import { applyRecognizedPlan } from '../ai/sketchRecognizer'
+import { applyRecognizedPlan, addRecognizedRooms } from '../ai/sketchRecognizer'
 import { spec } from '../core/constraints/rooms'
 import { area } from '../core/geometry/polygon'
 import { formatAreaFor } from '../core/units/units'
@@ -33,19 +33,27 @@ export function SketchPanel() {
   const questions = r?.rooms.filter((x) => x.confidence < 0.6 && !st.confirmed.includes(x.id)) ?? []
   const create = (then: 'plan' | '3d') => {
     if (!r || !floor) return
-    const replacing = floor.rooms.length > 0
+    const adding = st.mode === 'add' && floor.rooms.length > 0
     let warnings: string[] = []
-    commit(`Floor plan from sketch (${floor.name})`, (d) => {
+    let count = r.rooms.length
+    commit(adding ? `Add sketched room${r.rooms.length === 1 ? '' : 's'} (${floor.name})` : `Floor plan from sketch (${floor.name})`, (d) => {
       const f = d.floors.find((x) => x.id === floor.id) as Floor
-      warnings = applyRecognizedPlan(r, f, d.plot, d.settings).warnings
+      if (adding) {
+        const res = addRecognizedRooms(r, f, d.settings, d.site as unknown as Project['site'])
+        warnings = res.warnings
+        count = res.added.length
+      } else warnings = applyRecognizedPlan(r, f, d.plot, d.settings).warnings
       applySmartLabels(d as unknown as Project)
     }, { major: true })
     useUI.getState().toast({
       kind: warnings.length ? 'warning' : 'success',
-      title: `${r.rooms.length} rooms created on the ${floor.name.toLowerCase()} floor`,
-      body: warnings[0] ?? (replacing ? 'The previous layout of this floor was replaced; Ctrl+Z brings it back.' : 'Walls, doors and windows are now editable.')
+      title: adding ? `${count} room${count === 1 ? '' : 's'} added to the ${floor.name.toLowerCase()} floor` : `${count} rooms created on the ${floor.name.toLowerCase()} floor`,
+      body: warnings[0] ?? (adding ? 'Walls, a door, windows and furniture were added. Ctrl+Z undoes it.' : 'Walls, doors and windows are now editable.')
     })
-    useUI.getState().set({ mode: then, selection: [] })
+    if (count) {
+      useSketch.getState().set({ strokes: [], texts: [], result: null })
+      useUI.getState().set({ mode: then, selection: [] })
+    }
     void getProject
   }
   return (
@@ -69,6 +77,12 @@ export function SketchPanel() {
           <label>Grid square</label>
           <Seg value={String(st.gridM)} onChange={(v) => st.set({ gridM: Number(v) })} options={[{ value: String(0.3048), label: '1 ft' }, { value: String(0.6096), label: '2 ft' }, { value: String(1.524), label: '5 ft' }, { value: '1', label: '1 m' }]} />
         </div>
+        {!!floor?.rooms.length && (
+          <div className="prop">
+            <label>Sketch</label>
+            <Seg value={st.mode} onChange={(v) => st.set({ mode: v, result: null })} options={[{ value: 'add', label: 'Add rooms', tip: 'Draw extra rooms next to the current plan' }, { value: 'replace', label: 'Redraw floor', tip: 'Replace this floor with the sketch' }]} />
+          </div>
+        )}
         <button className="btn" style={{ width: '100%', marginTop: 6 }} onClick={() => file.current?.click()}>
           <ImagePlus size={14} /> Import a sketch photo
         </button>
@@ -82,7 +96,7 @@ export function SketchPanel() {
       </div>
       <div className="section">
         <button className="btn primary" style={{ width: '100%' }} disabled={!st.strokes.length && !st.image} onClick={() => {
-            const res = runRecognition()
+            const res = runRecognition(floor)
             if (!res.rooms.length) useUI.getState().showError({ what: 'No rooms were recognized.', why: 'The outlines do not form closed shapes, or the lines are too far apart to join.', fix: 'Make sure each room outline meets its neighbours at the corners (small overshoots are fine), then try again.' })
           }}>
           <ScanLine size={14} /> Recognize sketch
@@ -152,7 +166,9 @@ export function SketchPanel() {
               <h3>Create the plan</h3>
             </div>
             <p className="faint" style={{ fontSize: 12, marginTop: 0 }}>
-              Goes on the {floor?.name.toLowerCase() ?? 'current'} floor{floor?.rooms.length ? ', replacing its current rooms (undo brings them back)' : ''}. Walls, doors, windows, stairs and furniture are created and stay editable.
+              {st.mode === 'add' && floor?.rooms.length
+                ? `New rooms join the ${floor.name.toLowerCase()} floor: they get walls, a door to their neighbour, windows and furniture.`
+                : `Goes on the ${floor?.name.toLowerCase() ?? 'current'} floor${floor?.rooms.length ? ', replacing its current rooms (undo brings them back)' : ''}. Walls, doors, windows, stairs and furniture are created and stay editable.`}
             </p>
             <div className="row" style={{ gap: 6 }}>
               <button className="btn grow" onClick={() => create('plan')}>

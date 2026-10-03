@@ -23,10 +23,56 @@ async function prepare(p: Project) {
   return { e, roots, restore }
 }
 
+const MAP_KEYS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap', 'alphaMap'] as const
+
+/** Procedural maps are DataTextures; exporters need drawable images, so bake them to canvases. */
+function exportMaterials() {
+  const texCache = new Map<THREE.Texture, THREE.Texture>()
+  const matCache = new Map<THREE.Material, THREE.Material>()
+  const tex = (t: THREE.Texture): THREE.Texture => {
+    const hit = texCache.get(t)
+    if (hit) return hit
+    const img = t.image as { data?: ArrayLike<number>; width?: number; height?: number } | undefined
+    let out = t
+    if (img?.data && img.width && img.height) {
+      const c = document.createElement('canvas')
+      c.width = img.width
+      c.height = img.height
+      const id = new ImageData(new Uint8ClampedArray(img.data as ArrayLike<number>), img.width, img.height)
+      c.getContext('2d')!.putImageData(id, 0, 0)
+      const ct = new THREE.CanvasTexture(c)
+      ct.wrapS = t.wrapS
+      ct.wrapT = t.wrapT
+      ct.repeat.copy(t.repeat)
+      ct.offset.copy(t.offset)
+      ct.rotation = t.rotation
+      ct.colorSpace = t.colorSpace
+      ct.flipY = t.flipY
+      out = ct
+    }
+    texCache.set(t, out)
+    return out
+  }
+  return (m: THREE.Material): THREE.Material => {
+    const hit = matCache.get(m)
+    if (hit) return hit
+    const c = m.clone() as THREE.Material & Record<string, unknown>
+    ;(c as THREE.Material).clippingPlanes = null
+    for (const k of MAP_KEYS) {
+      const t = c[k] as THREE.Texture | null | undefined
+      if (t && (t as THREE.Texture).isTexture) c[k] = tex(t)
+    }
+    matCache.set(m, c)
+    return c
+  }
+}
+
 /** A clean export copy: world transforms baked into a plain group, helpers and lights left out. */
 function exportScene(roots: THREE.Object3D[], name: string): THREE.Group {
   const out = new THREE.Group()
   out.name = name
+  const conv = exportMaterials()
+  const asExport = (m: THREE.Material | THREE.Material[]) => (Array.isArray(m) ? m.map(conv) : conv(m))
   for (const r of roots) {
     r.updateMatrixWorld(true)
     r.traverse((o) => {
@@ -43,7 +89,7 @@ function exportScene(roots: THREE.Object3D[], name: string): THREE.Group {
         const mat = new THREE.Matrix4()
         for (let i = 0; i < im.count; i++) {
           im.getMatrixAt(i, mat)
-          const c = new THREE.Mesh(im.geometry, im.material)
+          const c = new THREE.Mesh(im.geometry, asExport(im.material))
           c.name = `${im.name || 'plant'}_${i}`
           c.matrixAutoUpdate = false
           c.matrix.multiplyMatrices(im.matrixWorld, mat)
@@ -53,7 +99,7 @@ function exportScene(roots: THREE.Object3D[], name: string): THREE.Group {
         }
         return
       }
-      const c = new THREE.Mesh(m.geometry, m.material)
+      const c = new THREE.Mesh(m.geometry, asExport(m.material))
       c.name = m.name || m.parent?.name || 'mesh'
       m.matrixWorld.decompose(c.position, c.quaternion, c.scale)
       out.add(c)

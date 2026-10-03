@@ -82,3 +82,28 @@ describe('findFaces', () => {
     expect(areas[1]).toBeCloseTo(36)
   })
 })
+
+describe('parametric resize keeps the house connected', () => {
+  it('widening any bedroom never disconnects rooms', async () => {
+    const { generateDesign } = await import('@/planner/generator')
+    const { defaultRequirements, defaultSettings, plotFromPreset } = await import('@/core/model/defaults')
+    const { setRoomSize } = await import('@/planner/operations')
+    const { validateHouse } = await import('@/planner/validation')
+    const { bbox } = await import('@/core/geometry/polygon')
+    const unreachable = (h: Parameters<typeof validateHouse>[0]) => validateHouse(h).filter((i) => i.severity === 'error' && /reached/.test(i.message)).length
+    let checked = 0
+    for (const [preset, strategy, seed] of [['10-marla', 'family', 7], ['1-kanal', 'luxury-open', 4242], ['1-kanal', 'privacy', 11]] as const) {
+      const d = generateDesign(defaultRequirements(), plotFromPreset(preset), strategy, { settings: defaultSettings(), seed, iterations: 900 })
+      for (const f of d.house.floors)
+        for (const r of f.rooms.filter((x) => /bedroom/.test(x.type))) {
+          const h = structuredClone(d.house)
+          const before = unreachable(h)
+          const fl = h.floors.find((x) => x.id === f.id)!
+          for (const axis of ['x', 'y'] as const) setRoomSize(fl, r.id, axis, bbox(fl.rooms.find((x) => x.id === r.id)!.polygon)[axis === 'x' ? 'w' : 'h'] + 0.61, defaultSettings())
+          expect(unreachable(h)).toBeLessThanOrEqual(before)
+          checked++
+        }
+    }
+    expect(checked).toBeGreaterThan(8)
+  })
+})

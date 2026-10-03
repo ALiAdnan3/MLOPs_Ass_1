@@ -40,7 +40,7 @@ export function Workspace() {
     <>
       <TitleBar />
       <div className="workspace">
-        <Toolbar />
+        {mode !== 'present' && <Toolbar />}
         <main
           className="stage"
           onDragOver={(e) => {
@@ -91,7 +91,7 @@ export function Workspace() {
         </main>
         <Inspector />
       </div>
-      <StatusBar />
+      {mode !== 'present' && <StatusBar />}
     </>
   )
 }

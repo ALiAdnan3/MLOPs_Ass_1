@@ -304,7 +304,7 @@ function titleBlock(dc: DrawContext, p: Project, d: DrawingSpec, scale: number, 
   const a = areaSummary(planHouse(p))
   row('Project', p.name)
   row('Plot', `${formatPlotSize(p.plot.width, p.plot.depth, p.settings.units)}, ${formatAreaFor(a.plotArea, p.settings.units)}`)
-  row('Covered area', formatAreaFor(a.totalFloorArea, p.settings.units) + ' total floor area')
+  row('Floor area', `${formatAreaFor(a.totalFloorArea, p.settings.units)} total, ${formatAreaFor(a.coveredArea, p.settings.units)} covered`)
   row('Drawing', d.title)
   row('Scale', `1:${scale} at A3`)
   row('Units', p.settings.units === 'm' || p.settings.units === 'cm' ? 'Metres' : 'Feet and inches')

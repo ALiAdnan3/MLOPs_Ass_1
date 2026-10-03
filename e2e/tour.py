@@ -13,6 +13,8 @@ from playwright.sync_api import sync_playwright
 
 URL = "http://localhost:5199/?quality=high"
 OUT = pathlib.Path("test-results/tour")
+if "--theme" in sys.argv and "light" in sys.argv:
+    OUT = pathlib.Path("test-results/tour-light")
 
 
 def main() -> int:

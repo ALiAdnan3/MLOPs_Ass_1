@@ -12,6 +12,7 @@ import { useWizard } from '../screens/wizardState'
 const ExportDialog = lazy(() => import('./ExportDialog').then((m) => ({ default: m.ExportDialog })))
 const ImportPlanDialog = lazy(() => import('./ImportPlan').then((m) => ({ default: m.ImportPlanDialog })))
 const AlternativesDialog = lazy(() => import('./Alternatives').then((m) => ({ default: m.AlternativesDialog })))
+const ConceptBoard = lazy(() => import('./ConceptBoard').then((m) => ({ default: m.ConceptBoard })))
 
 export function DialogHost() {
   const dialog = useUI((s) => s.dialog)
@@ -26,6 +27,7 @@ export function DialogHost() {
       {dialog === 'export' && <ExportDialog onClose={close} />}
       {dialog === 'import-plan' && <ImportPlanDialog onClose={close} />}
       {dialog === 'alternatives' && <AlternativesDialog onClose={close} />}
+      {dialog === 'concepts' && <ConceptBoard onClose={close} />}
     </Suspense>
   )
 }

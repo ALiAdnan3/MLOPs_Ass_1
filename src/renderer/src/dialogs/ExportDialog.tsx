@@ -158,10 +158,10 @@ function DrawingsExport({ preset, onDone }: { preset?: string; onDone: () => voi
         {(format === 'png' || format === 'jpg') && <Seg value={String(dpi)} onChange={(v) => setDpi(Number(v))} options={[{ value: '150', label: '150 dpi' }, { value: '200', label: '200 dpi' }, { value: '300', label: '300 dpi' }]} />}
       </div>
       <div className="row" style={{ gap: 12, alignItems: 'flex-start' }}>
-        <div style={{ flex: '1 1 0', minWidth: 0, background: '#fff', borderRadius: 4, border: '1px solid var(--line)', aspectRatio: '420 / 297', overflow: 'hidden' }}>
+        <div style={{ flex: '1 1 0', minWidth: 0, maxWidth: 600, background: '#fff', borderRadius: 4, border: '1px solid var(--line)', aspectRatio: '420 / 297', overflow: 'hidden' }}>
           {preview ? <img src={preview} alt="Sheet preview" style={{ width: '100%', height: '100%', display: 'block' }} /> : <div className="faint" style={{ padding: 20 }}>Choose at least one drawing.</div>}
         </div>
-        <div className="list" style={{ width: 210, maxHeight: 300, overflowY: 'auto' }}>
+        <div className="list" style={{ flex: '0 0 230px', maxHeight: 420, overflowY: 'auto' }}>
           {specs.map((d, i) => (
             <button key={d.id} className={`list-item ${i === previewIdx ? 'on' : ''}`} onClick={() => setPreviewIdx(i)} style={{ textAlign: 'left' }}>
               <span className="tabular faint" style={{ width: 44, flex: 'none' }}>

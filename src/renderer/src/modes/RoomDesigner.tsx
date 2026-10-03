@@ -405,7 +405,7 @@ function OpeningsSection({ project, floor, room }: { project: Project; floor: Fl
                   </option>
                 ))}
               </select>
-              <div style={{ width: 86 }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ width: 100 }} onClick={(e) => e.stopPropagation()}>
                 <LengthField value={o.width} units={u} min={0.4} max={w ? Math.max(0.5, segLength(w.a, w.b) - 0.2) : 6} onCommit={(v) => up(o.id, 'Opening width', (x) => void (x.width = v))} tip="Width" />
               </div>
               <button className="icon-btn" aria-label="Remove" data-tip="Remove" onClick={(e) => {

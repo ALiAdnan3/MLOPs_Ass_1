@@ -117,7 +117,8 @@ const R: Recipe[] = [
   { id: 'wallpaper-botanical', name: 'Botanical', category: 'wallpaper', kind: 'wallpaper', colors: ['#dfe6dc', '#6f8d6a'], scale: 0.7, roughness: 0.8, params: { motif: 4 } },
   { id: 'wallpaper-linen', name: 'Linen Texture', category: 'wallpaper', kind: 'fabric', colors: ['#d7cfc1', '#c5bba9'], scale: 0.4, roughness: 0.9 },
   // Ground & outdoor
-  { id: 'grass-lawn', name: 'Lawn Grass', category: 'ground', kind: 'grass', colors: ['#5c8a3a', '#4a7430', '#77a24b'], scale: 2.0, roughness: 0.95 },
+  { id: 'grass-lawn', name: 'Lawn Grass', category: 'ground', kind: 'grass', colors: ['#557f36', '#466b2d', '#6a9444'], scale: 2.0, roughness: 0.95 },
+  { id: 'grass-field', name: 'Field Grass', category: 'ground', kind: 'grass', colors: ['#56703a', '#4a6231', '#687f45'], scale: 3.0, roughness: 1 },
   { id: 'asphalt', name: 'Asphalt', category: 'ground', kind: 'asphalt', colors: ['#3a3b3d', '#2c2d2f', '#58595c'], scale: 2.0, roughness: 0.9 },
   { id: 'pavers-grey', name: 'Grey Pavers', category: 'ground', kind: 'pavers', colors: ['#8f8e8a', '#7a7975', '#a3a29e'], scale: 1.2, roughness: 0.85, params: { pw: 0.2, ph: 0.1 } },
   { id: 'pavers-red', name: 'Tuff Tiles Red', category: 'ground', kind: 'pavers', colors: ['#9b5a44', '#834a37', '#b06a51'], scale: 1.2, roughness: 0.85, params: { pw: 0.2, ph: 0.1 } },

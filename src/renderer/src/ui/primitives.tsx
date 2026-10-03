@@ -239,18 +239,23 @@ export function Menu(props: { items: MenuItem[]; x: number; y: number; onClose: 
     if (!r) return
     setPos({ left: Math.min(props.x, window.innerWidth - r.width - 8), top: Math.min(props.y, window.innerHeight - r.height - 8) })
   }, [props.x, props.y])
+  // latest onClose without re-subscribing on every parent render (a re-subscribe raced the
+  // deferred listener and leaked handlers that closed the next menu before its click landed)
+  const onClose = useRef(props.onClose)
+  onClose.current = props.onClose
   useEffect(() => {
     const down = (e: PointerEvent) => {
-      if (!ref.current?.contains(e.target as Node)) props.onClose()
+      if (!ref.current?.contains(e.target as Node)) onClose.current()
     }
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && props.onClose()
-    setTimeout(() => window.addEventListener('pointerdown', down), 0)
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && onClose.current()
+    const t = setTimeout(() => window.addEventListener('pointerdown', down), 0)
     window.addEventListener('keydown', key)
     return () => {
+      clearTimeout(t)
       window.removeEventListener('pointerdown', down)
       window.removeEventListener('keydown', key)
     }
-  }, [props])
+  }, [])
   return createPortal(
     <div ref={ref} className="menu" style={{ ...pos, minWidth: props.minWidth }} role="menu" onContextMenu={(e) => e.preventDefault()}>
       {props.items.map((it, i) =>
@@ -359,5 +364,63 @@ export function BrandMark(props: { size?: number }) {
       <path d="M5.5 15.2h13" stroke="var(--tape)" strokeWidth="1.8" />
       <path d="M12 15.2v4.3" stroke="var(--tape)" strokeWidth="1.8" />
     </svg>
+  )
+}
+
+/* Text prompt (Electron has no window.prompt) ------------------------------ */
+
+interface PromptReq {
+  title: string
+  label?: string
+  value: string
+  placeholder?: string
+  confirm?: string
+  resolve: (v: string | null) => void
+}
+let setPrompt: ((r: PromptReq | null) => void) | null = null
+
+/** Ask for a short text in an in-app dialog. Resolves null when cancelled. */
+export function askText(title: string, value = '', opts: { label?: string; placeholder?: string; confirm?: string } = {}): Promise<string | null> {
+  return new Promise((resolve) => {
+    if (!setPrompt) return resolve(null)
+    setPrompt({ title, value, ...opts, resolve })
+  })
+}
+
+export function PromptHost() {
+  const [req, set] = useState<PromptReq | null>(null)
+  const [v, setV] = useState('')
+  useEffect(() => {
+    setPrompt = (r) => {
+      set(r)
+      setV(r?.value ?? '')
+    }
+    return () => {
+      setPrompt = null
+    }
+  }, [])
+  if (!req) return null
+  const done = (val: string | null) => {
+    req.resolve(val)
+    set(null)
+  }
+  return (
+    <Modal
+      title={req.title}
+      onClose={() => done(null)}
+      footer={
+        <>
+          <button className="btn" onClick={() => done(null)}>
+            Cancel
+          </button>
+          <button className="btn primary" disabled={!v.trim()} onClick={() => done(v.trim())}>
+            {req.confirm ?? 'OK'}
+          </button>
+        </>
+      }
+    >
+      {req.label && <label className="faint" style={{ display: 'block', fontSize: 12, marginBottom: 6 }}>{req.label}</label>}
+      <input className="field" autoFocus value={v} placeholder={req.placeholder} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && v.trim() && done(v.trim())} onFocus={(e) => e.currentTarget.select()} />
+    </Modal>
   )
 }

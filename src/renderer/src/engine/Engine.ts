@@ -392,8 +392,8 @@ export class Engine {
     this.hemi.color.set(night > 0.5 ? '#3a4a6a' : '#dfe9f5')
     this.hemi.groundColor.set(night > 0.5 ? '#1a1a1e' : '#6b6a58')
     const u = this.sky.material.uniforms
-    u['turbidity'].value = 6 + warm * 4
-    u['rayleigh'].value = 1.2 + warm * 1.8
+    u['turbidity'].value = 3.2 + warm * 5
+    u['rayleigh'].value = 1.7 + warm * 1.3
     u['mieCoefficient'].value = 0.004
     u['mieDirectionalG'].value = 0.8
     u['sunPosition'].value.copy(new THREE.Vector3(d.x, d.y, d.z))

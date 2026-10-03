@@ -1,8 +1,10 @@
 import type { ArchitecturalStyle, Floor, Project, Requirements, Room, RoomType, RoofType, SiteArea, SiteAreaKind, Vec2 } from '../core/model/types'
 import { EDIT_OPS } from '../../../shared/ai-schemas'
 import { ROOM_SPECS, spec, isBathType } from '../core/constraints/rooms'
-import { bbox, area, centroid, differencePolys, intersectPolys, largestInscribedRect, unionPolys, rectPoly } from '../core/geometry/polygon'
+import { bbox, area, centroid, differencePolys, intersectPolys, largestInscribedRect, unionPolys, rectPoly, pointInPolygon } from '../core/geometry/polygon'
 import { FT, formatLength, formatAreaFor } from '../core/units/units'
+import { distToSegment } from '../core/geometry/segment'
+import { wallsOfRoom, effectiveKind } from '../planner/walls'
 import { setRoomSize, swapRooms, splitRoom, mergeRooms, refurnishRoom, refreshFloor, setFloorHeight, deleteRoom } from '../planner/operations'
 import { addDoor, sharedWalls } from '../planner/generator/openings'
 import { addWindowToRoom, scaleWindows } from '../planner/openingsEdit'
@@ -189,6 +191,7 @@ export function parseEditOffline(text: string, p: Project, floorId: string): Edi
     .map((c) => c.trim())
     .filter(Boolean)
   const all = text.toLowerCase()
+  const ref0 = (m: { hit: RoomHit | null; phrase: string }) => m.hit?.room.id ?? m.phrase
   for (const clause of clauses) {
     const c = clause.toLowerCase()
     const rooms = roomMentions(c, p, floorId)
@@ -265,6 +268,12 @@ export function parseEditOffline(text: string, p: Project, floorId: string): Edi
     }
     // materials
     const mat = MATERIAL_WORDS.find(([re]) => re.test(c))?.[1]
+    // "TV wall → stone", "feature wall in stone": the wall behind the TV / sofa of a lounge
+    if (mat && /\b(tv|feature|accent)\s+wall\b/.test(c)) {
+      const lounge = rooms.find((m) => m.hit && ['tv_lounge', 'living', 'family', 'drawing', 'basement_lounge', 'master_bedroom', 'bedroom'].includes(m.hit.room.type))
+      ops.push(op({ op: 'set_room_material', target: lounge ? ref0(lounge) : 'tv lounge', value: `tvwall:${mat}` }))
+      continue
+    }
     const surface = /\b(floor|floors|flooring)\b/.test(c) ? 'floor' : /\bwalls?\b/.test(c) ? 'walls' : /\bceiling\b/.test(c) ? 'ceiling' : null
     if (mat && /\b(this|my|uploaded|the one i)\b/.test(c) && rooms.some((r) => r.hit || r.ambiguous.length)) {
       ops.push(op({ op: 'apply_uploaded_material', target: rooms[0].hit?.room.id ?? rooms[0].phrase, value: surface ?? 'floor' }))
@@ -879,7 +888,24 @@ function execute(d: Project, o: EditOp, floorId: string): string | null {
     }
     case 'set_room_material':
     case 'apply_uploaded_material': {
+      if (o.op === 'set_room_material' && (o.value ?? '').startsWith('tvwall:')) {
+        const hit = findRoomRef(d, o.target, floorId) ?? mustRoom(d, 'tv lounge', floorId)
+        return tvWall(d, hit.floor, hit.room, matId(o.value!.split(':')[1] || 'stone', 'accent'))
+      }
       const { room } = mustRoom(d, o.target, floorId)
+      if (room.type === 'stair') {
+        // "stairs → wood" means the staircase itself (treads and risers), on every floor it serves
+        const id = o.op === 'apply_uploaded_material' ? ([...d.materials].reverse().find((x) => x.source === 'upload')?.id ?? '') : matId((o.value ?? 'floor:wood').split(':')[1] || 'wood', 'floor')
+        if (!id) throw new EditError('there is no uploaded material yet.')
+        let n = 0
+        for (const f of d.floors)
+          for (const st of f.stairs) {
+            st.material = id
+            n++
+          }
+        if (!n) throw new EditError('this house has no staircase.')
+        return `Stairs now ${d.materials.find((x) => x.id === id)?.name ?? id.replace(/^lib:/, '').replace(/-/g, ' ')}`
+      }
       const [surfRaw, m] = o.op === 'apply_uploaded_material' ? [o.value ?? 'floor', ''] : (o.value ?? 'floor:marble').split(':')
       const surf = surfRaw.startsWith('wall') ? 'walls' : surfRaw.startsWith('ceil') ? 'ceiling' : 'floor'
       let id: string
@@ -942,6 +968,20 @@ function execute(d: Project, o: EditOp, floorId: string): string | null {
     default:
       return null
   }
+}
+
+/** Finish the wall the TV (or, failing that, the sofa) stands against with a feature material. */
+function tvWall(d: Project, floor: Floor, room: Room, id: string): string {
+  const inRoom = floor.furniture.filter((f) => pointInPolygon(f.position, room.polygon))
+  const anchor = inRoom.find((f) => /tv/.test(f.type)) ?? inRoom.find((f) => /sofa|bed/.test(f.type))
+  const segs = wallsOfRoom(floor, room).filter((x) => effectiveKind(x.wall) !== 'virtual')
+  if (!segs.length) throw new EditError(`${room.name} has no solid walls.`)
+  const target = anchor?.position ?? centroid(room.polygon)
+  const best = segs.map((x) => ({ x, d: distToSegment(target, x.wall.a, x.wall.b) })).sort((a, b) => a.d - b.d)[0].x
+  const w = floor.walls.find((q) => q.id === best.wall.id)!
+  w.sideMaterials = { ...w.sideMaterials, [best.side]: id }
+  const name = d.materials.find((x) => x.id === id)?.name ?? id.replace(/^lib:/, '').replace(/-/g, ' ')
+  return `${anchor && /tv/.test(anchor.type) ? 'TV wall' : 'Feature wall'} in ${room.name} now ${name}`
 }
 
 function mergeIntoLawn(d: Project, lawn: SiteArea, a: SiteArea) {

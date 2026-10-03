@@ -1019,6 +1019,18 @@ input[type='range']::-webkit-slider-thumb {
   border-radius: var(--r);
   cursor: pointer;
 }
+button.list-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+button.list-item svg {
+  width: 16px;
+  height: 16px;
+}
 .list-item:hover {
   background: var(--raised);
 }
@@ -1291,7 +1303,8 @@ input[type='range']::-webkit-slider-thumb {
   left: 22px;
   bottom: 20px;
   display: flex;
-  gap: 18px;
+  gap: 30px;
+  white-space: nowrap;
   color: rgba(255, 255, 255, 0.85);
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
 }
@@ -1576,6 +1589,8 @@ input[type='range']::-webkit-slider-thumb {
   padding: 18px 26px 26px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  /* rows keep their content height; the grid scrolls instead of squeezing cards */
+  grid-auto-rows: max-content;
   gap: 14px;
   align-content: start;
 }
@@ -2048,4 +2063,19 @@ table.compare .better {
   background: color-mix(in srgb, var(--canvas) 82%, transparent);
   padding: 4px 8px;
   border-radius: var(--r-sm);
+}
+
+.style-chips {
+  display: flex;
+  height: 8px;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 8px;
+  box-shadow: 0 0 0 1px var(--line-soft);
+}
+.style-chips i {
+  flex: 1;
+}
+.style-chips i:first-child {
+  flex: 2.2;
 }

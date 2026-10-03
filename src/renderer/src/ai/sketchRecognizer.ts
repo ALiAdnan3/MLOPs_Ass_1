@@ -1,11 +1,13 @@
 import type { Floor, Opening, Plot, ProjectSettings, Room, RoomType, Vec2 } from '../core/model/types'
 import { findFaces, type Seg } from '../core/geometry/planar'
-import { area, bbox, centroid, pointInPolygon, removeCollinear, largestInscribedRect } from '../core/geometry/polygon'
+import { area, bbox, centroid, pointInPolygon, removeCollinear, largestInscribedRect, unionPolys, differencePolys } from '../core/geometry/polygon'
 import { projectT, distToSegment, segLength } from '../core/geometry/segment'
 import { ROOM_SPECS, spec } from '../core/constraints/rooms'
 import { uid } from '../core/model/ids'
 import { refreshFloor } from '../planner/operations'
-import { furnishFloor } from '../planner/furnish'
+import { furnishFloor, furnishRoom } from '../planner/furnish'
+import { addDoor, sharedWalls } from '../planner/generator/openings'
+import { addWindowToRoom } from '../planner/openingsEdit'
 import { repairAccess } from '../planner/access'
 import { effectiveKind } from '../planner/walls'
 import { fitStair, risersFor } from '../planner/stairs'
@@ -393,6 +395,8 @@ export interface RecognizeOptions {
   texts?: TextMark[]
   /** Thin marks near walls that indicate windows (image mode). */
   windowMarks?: Seg[]
+  /** Keep coordinates as drawn (adding to an existing plan): dimension labels do not rescale. */
+  noScale?: boolean
 }
 
 export function recognize(rawSegs: Seg[], o: RecognizeOptions = {}): RecognizedPlan {
@@ -438,7 +442,7 @@ export function recognize(rawSegs: Seg[], o: RecognizeOptions = {}): RecognizedP
     const labelled = [d.w, d.l].sort((a, c) => a - c)
     ratios.push(labelled[0] / measured[0], labelled[1] / measured[1])
   }
-  if (ratios.length) {
+  if (ratios.length && !o.noScale) {
     ratios.sort((a, b) => a - b)
     scale = ratios[Math.floor(ratios.length / 2)]
     if (Math.abs(scale - 1) > 0.03) notes.push(`Scaled by ${scale.toFixed(2)} to match the dimensions you wrote.`)
@@ -593,4 +597,52 @@ export function applyRecognizedPlan(plan: RecognizedPlan, floor: Floor, plot: Pl
   if (fixed.length) warnings.push(...fixed.slice(0, 3))
   floor.furniture = furnishFloor(floor, uid, { luxury: 50 })
   return { warnings }
+}
+
+/**
+ * Add recognized rooms to an existing floor (§72 "draw an additional room"): sketch coordinates
+ * are plan coordinates, new rooms are trimmed where they overlap existing ones, get a door to
+ * their neighbour, windows on new outside walls, furniture — and lawns they sit on shrink.
+ */
+export function addRecognizedRooms(plan: RecognizedPlan, floor: Floor, settings: ProjectSettings, site?: { areas: { polygon: Vec2[] }[] }): { added: Room[]; warnings: string[] } {
+  const warnings: string[] = []
+  const existing = unionPolys(floor.rooms.filter((r) => r.type !== 'void').map((r) => r.polygon))
+  const added: Room[] = []
+  for (const r of plan.rooms) {
+    let poly = r.polygon.map((p) => ({ x: Math.round(p.x * 1000) / 1000, y: Math.round(p.y * 1000) / 1000 }))
+    if (existing.length) {
+      const pieces = differencePolys(poly, ...existing.map((e) => e.outer)).filter((x) => !x.holes.length).sort((a, b) => area(b.outer) - area(a.outer))
+      if (!pieces[0] || area(pieces[0].outer) < 1.2) continue
+      poly = removeCollinear(pieces[0].outer, 1e-3)
+    }
+    const room: Room = { id: r.id, name: r.name, autoName: !r.label, type: r.type, polygon: poly }
+    floor.rooms.push(room)
+    added.push(room)
+  }
+  if (!added.length) {
+    warnings.push('The sketch only covered rooms that already exist; draw the new room outside the current walls.')
+    return { added, warnings }
+  }
+  refreshFloor(floor, settings)
+  for (const room of added) {
+    // a door to the neighbour it shares the longest wall with
+    const nb = floor.rooms
+      .filter((x) => x.id !== room.id && !added.includes(x))
+      .map((x) => ({ x, len: sharedWalls(floor, room, x).reduce((sum, w) => sum + (w.t1 - w.t0), 0) }))
+      .filter((q) => q.len > 0.9)
+      .sort((a, b) => b.len - a.len)[0]
+    if (nb) addDoor(floor, floor.openings, nb.x, room, 'single', 0.9, uid, { swingInto: room })
+    else addDoor(floor, floor.openings, room, null, 'single', 0.9, uid)
+    const r = floor.rooms.find((x) => x.id === room.id)!
+    if (!spec(r.type).wet || area(r.polygon) > 4) addWindowToRoom(floor, r, spec(r.type).wet ? 0.6 : 1.5)
+    floor.furniture.push(...furnishRoom(floor, r, uid, { luxury: 50 }))
+  }
+  // lawns / paving under a new ground-floor room give way to it
+  if (site && floor.level === 0)
+    for (const a of site.areas)
+      for (const room of added) {
+        const left = differencePolys(a.polygon, room.polygon).filter((x) => !x.holes.length).sort((p, q) => area(q.outer) - area(p.outer))[0]
+        if (left && area(left.outer) < area(a.polygon) - 0.05) a.polygon = left.outer
+      }
+  return { added, warnings }
 }

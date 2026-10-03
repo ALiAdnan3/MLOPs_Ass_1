@@ -8,6 +8,7 @@ import { setRoomSize } from '../planner/operations'
 import { areaSummary } from '../planner/metrics'
 import { houseOf } from '../app/actions'
 import { useEffect, useState } from 'react'
+import { askText } from '../ui/primitives'
 
 export function StatusBar() {
   const project = useProject((s) => s.project)
@@ -52,8 +53,11 @@ export function StatusBar() {
           </div>
           <select className="field" style={{ width: 96, height: 22, fontSize: 12 }} value={grids.some((g) => Math.abs(g.value - s.grid) < 1e-6) ? String(s.grid) : 'custom'} aria-label="Grid size" onChange={(e) => {
               if (e.target.value === 'custom') {
-                const v = parseLength(prompt('Grid spacing (e.g. 9in, 0.25m)') ?? '', inputUnit(u))
-                if (v && v > 0.005) commit('Grid size', (d) => void (d.settings.grid = v))
+                void askText('Custom grid spacing', '', { label: 'Spacing, for example 9in, 2ft or 0.25m', confirm: 'Set grid' }).then((t) => {
+                  const v = t ? parseLength(t, inputUnit(u)) : null
+                  if (v && v > 0.005) commit('Grid size', (d) => void (d.settings.grid = v))
+                  else if (t) useUI.getState().toast({ kind: 'warning', title: `"${t}" is not a length`, body: 'Use a value like 9in, 2ft, 0.25m or 30cm.' })
+                })
               } else commit('Grid size', (d) => void (d.settings.grid = Number(e.target.value)))
             }}>
             {grids.map((g) => (

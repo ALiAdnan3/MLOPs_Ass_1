@@ -4,7 +4,7 @@ import { getEngine } from './Engine'
 import { useProject, getProject, commit } from '../state/store'
 import { useUI, type CameraPreset, type ViewMode3D } from '../state/ui'
 import type { EntityRef, SurfaceRef, LightingSettings } from '../core/model/types'
-import { Seg, IconButton, Menu, type MenuItem, openContextMenu } from '../ui/primitives'
+import { Seg, IconButton, Menu, type MenuItem, openContextMenu, askText } from '../ui/primitives'
 import { presetTime, LIGHT_PRESETS } from './lighting/sun'
 import { uid } from '../core/model/ids'
 import { WalkController } from './controllers/WalkController'
@@ -204,10 +204,13 @@ function ViewBar() {
     { heading: 'Bookmarks' },
     ...cameras.map((b) => ({ label: b.name, onClick: () => engine.goToBookmark(b) })),
     { label: 'Save current view as bookmark…', onClick: () => {
-        const name = prompt('Bookmark name', `View ${cameras.length + 1}`)
-        if (!name) return
-        const bm = { id: uid('cam'), ...engine.getBookmark(name) }
-        commit('Save camera bookmark', (d) => void d.cameras.push(bm))
+        const pose = engine.getBookmark('')
+        void askText('Save this view', `View ${cameras.length + 1}`, { label: 'Bookmark name', confirm: 'Save bookmark' }).then((name) => {
+          if (!name) return
+          const bm = { id: uid('cam'), ...pose, name }
+          commit('Save camera bookmark', (d) => void d.cameras.push(bm))
+          useUI.getState().toast({ kind: 'success', title: `Saved "${name}"`, body: 'Find it under Cameras; the drone can fly through your bookmarks.' })
+        })
       } }
   ]
   return (

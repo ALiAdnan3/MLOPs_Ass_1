@@ -165,7 +165,7 @@ export function parseRequirements(text: string, base: Requirements): ParsedRequi
   }
   if (counted.has('bedrooms') && !counted.has('bathrooms')) {
     req.rooms.bathrooms = req.rooms.bedrooms + req.rooms.guestBedrooms
-    found('(implied)', `${req.rooms.bathrooms} bathrooms — one per bedroom`)
+    found('(implied)', `${req.rooms.bathrooms} bathrooms, one per bedroom`)
   }
 
   // ── outdoor ──

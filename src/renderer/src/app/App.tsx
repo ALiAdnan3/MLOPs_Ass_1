@@ -3,7 +3,7 @@ import { TriangleAlert, CircleCheck, Info, CircleX } from 'lucide-react'
 import { useUI } from '../state/ui'
 import { platform } from '../storage/platform'
 import { configureAutosave, openRecent, startAutosave } from '../storage/session'
-import { ContextMenuHost, Modal, TooltipLayer } from '../ui/primitives'
+import { ContextMenuHost, Modal, PromptHost, TooltipLayer } from '../ui/primitives'
 import { Home } from '../screens/Home'
 import { Wizard } from '../screens/Wizard'
 import { Designs } from '../screens/Designs'
@@ -48,6 +48,7 @@ export function App() {
       </ErrorBoundary>
       <TooltipLayer />
       <ContextMenuHost />
+      <PromptHost />
       <DialogHost />
       <Toasts />
       <ErrorDialog />
