@@ -83,7 +83,7 @@ export function EstimatePanel() {
                 <div key={l.key} data-tip={`${l.label}: ${formatMoney(l.amount, r.currency)} (${Math.round((l.amount / total) * 100)}% of total), quantity ${l.qty}`} style={{ display: 'grid', gridTemplateColumns: '104px 1fr', alignItems: 'center', gap: 8, padding: '1px 0', cursor: 'default' }}>
                   <span style={{ fontSize: 11, color: 'var(--text-2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.label}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, height: 16 }}>
-                    <div style={{ width: `${Math.max(0.5, pct * 0.62)}%`, height: 12, background: 'var(--chalk)', borderRadius: '0 4px 4px 0' }} />
+                    <div style={{ width: `${Math.max(0.5, pct * 0.62)}%`, height: 12, background: 'var(--chart-1)', borderRadius: '0 4px 4px 0' }} />
                     <span className="tabular" style={{ fontSize: 11, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                       {formatMoney(l.amount, r.currency)}
                     </span>

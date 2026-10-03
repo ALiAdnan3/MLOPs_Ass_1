@@ -17,6 +17,8 @@
   --tape-soft: rgba(240, 184, 35, 0.14);
   --chalk: #4da8da;
   --chalk-soft: rgba(77, 168, 218, 0.14);
+  /* data marks (validated with the dataviz palette checker against --panel) */
+  --chart-1: #4199cc;
   --danger: #e5534b;
   --danger-soft: rgba(229, 83, 75, 0.14);
   --warn: #d9a441;
@@ -44,6 +46,7 @@
   --tape-soft: rgba(217, 154, 0, 0.14);
   --chalk: #1f7fb5;
   --chalk-soft: rgba(31, 127, 181, 0.12);
+  --chart-1: #1f7fb5;
   --danger: #c9372c;
   --danger-soft: rgba(201, 55, 44, 0.1);
   --warn: #b27b00;

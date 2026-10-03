@@ -1,6 +1,6 @@
-import type { Floor, Opening, Plot, ProjectSettings, Room, RoomType, Vec2 } from '../core/model/types'
+import type { Floor, Opening, Plot, ProjectSettings, Room, RoomType, SiteArea, Vec2 } from '../core/model/types'
 import { findFaces, type Seg } from '../core/geometry/planar'
-import { area, bbox, centroid, pointInPolygon, removeCollinear, largestInscribedRect, unionPolys, differencePolys } from '../core/geometry/polygon'
+import { area, bbox, centroid, pointInPolygon, removeCollinear, largestInscribedRect, unionPolys, differencePolys, overlapArea } from '../core/geometry/polygon'
 import { projectT, distToSegment, segLength } from '../core/geometry/segment'
 import { ROOM_SPECS, spec } from '../core/constraints/rooms'
 import { uid } from '../core/model/ids'
@@ -604,7 +604,7 @@ export function applyRecognizedPlan(plan: RecognizedPlan, floor: Floor, plot: Pl
  * are plan coordinates, new rooms are trimmed where they overlap existing ones, get a door to
  * their neighbour, windows on new outside walls, furniture — and lawns they sit on shrink.
  */
-export function addRecognizedRooms(plan: RecognizedPlan, floor: Floor, settings: ProjectSettings, site?: { areas: { polygon: Vec2[] }[] }): { added: Room[]; warnings: string[] } {
+export function addRecognizedRooms(plan: RecognizedPlan, floor: Floor, settings: ProjectSettings, site?: { areas: SiteArea[] }): { added: Room[]; warnings: string[] } {
   const warnings: string[] = []
   const existing = unionPolys(floor.rooms.filter((r) => r.type !== 'void').map((r) => r.polygon))
   const added: Room[] = []
@@ -641,8 +641,22 @@ export function addRecognizedRooms(plan: RecognizedPlan, floor: Floor, settings:
   if (site && floor.level === 0)
     for (const a of site.areas)
       for (const room of added) {
-        const left = differencePolys(a.polygon, room.polygon).filter((x) => !x.holes.length).sort((p, q) => area(q.outer) - area(p.outer))[0]
-        if (left && area(left.outer) < area(a.polygon) - 0.05) a.polygon = left.outer
+        if (overlapArea(a.polygon, room.polygon) < 0.05) continue
+        let pieces = differencePolys(a.polygon, room.polygon)
+        if (pieces.some((x) => x.holes.length)) {
+          // the room sits inside the area: cut a narrow slot to the area's edge so the rest stays one simple outline
+          const ab = bbox(a.polygon)
+          const rb = bbox(room.polygon)
+          pieces = differencePolys(a.polygon, room.polygon, [
+            { x: rb.x + rb.w / 2 - 0.05, y: ab.y - 1 },
+            { x: rb.x + rb.w / 2 + 0.05, y: ab.y - 1 },
+            { x: rb.x + rb.w / 2 + 0.05, y: rb.y + 0.01 },
+            { x: rb.x + rb.w / 2 - 0.05, y: rb.y + 0.01 }
+          ])
+        }
+        const keep = pieces.filter((x) => !x.holes.length && area(x.outer) > 0.3).sort((p, q) => area(q.outer) - area(p.outer))
+        if (keep[0]) a.polygon = keep[0].outer
+        for (const extra of keep.slice(1)) site.areas.push({ ...a, id: uid('area'), polygon: extra.outer })
       }
   return { added, warnings }
 }

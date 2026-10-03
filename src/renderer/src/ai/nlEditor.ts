@@ -270,8 +270,9 @@ export function parseEditOffline(text: string, p: Project, floorId: string): Edi
     const mat = MATERIAL_WORDS.find(([re]) => re.test(c))?.[1]
     // "TV wall → stone", "feature wall in stone": the wall behind the TV / sofa of a lounge
     if (mat && /\b(tv|feature|accent)\s+wall\b/.test(c)) {
-      const lounge = rooms.find((m) => m.hit && ['tv_lounge', 'living', 'family', 'drawing', 'basement_lounge', 'master_bedroom', 'bedroom'].includes(m.hit.room.type))
-      ops.push(op({ op: 'set_room_material', target: lounge ? ref0(lounge) : 'tv lounge', value: `tvwall:${mat}` }))
+      // the room the user names wins; otherwise the main lounge is assumed at execution time
+      const named = rooms.find((m) => m.hit || m.ambiguous.length)
+      ops.push(op({ op: 'set_room_material', target: named ? ref0(named) : null, value: `tvwall:${mat}` }))
       continue
     }
     const surface = /\b(floor|floors|flooring)\b/.test(c) ? 'floor' : /\bwalls?\b/.test(c) ? 'walls' : /\bceiling\b/.test(c) ? 'ceiling' : null
@@ -889,7 +890,8 @@ function execute(d: Project, o: EditOp, floorId: string): string | null {
     case 'set_room_material':
     case 'apply_uploaded_material': {
       if (o.op === 'set_room_material' && (o.value ?? '').startsWith('tvwall:')) {
-        const hit = findRoomRef(d, o.target, floorId) ?? mustRoom(d, 'tv lounge', floorId)
+        const hit = o.target ? mustRoom(d, o.target, floorId) : mainLounge(d, floorId)
+        if (!hit) throw new EditError('there is no lounge or living room to put a feature wall in; name the room.')
         return tvWall(d, hit.floor, hit.room, matId(o.value!.split(':')[1] || 'stone', 'accent'))
       }
       const { room } = mustRoom(d, o.target, floorId)
@@ -968,6 +970,14 @@ function execute(d: Project, o: EditOp, floorId: string): string | null {
     default:
       return null
   }
+}
+
+/** The house's main living space (active floor first) for instructions that do not name a room. */
+function mainLounge(d: Project, floorId: string): RoomHit | null {
+  const order = ['tv_lounge', 'living', 'family', 'drawing', 'basement_lounge']
+  const all = d.floors.flatMap((f) => f.rooms.filter((r) => order.includes(r.type)).map((room) => ({ floor: f, room })))
+  all.sort((a, b) => Number(b.floor.id === floorId) - Number(a.floor.id === floorId) || order.indexOf(a.room.type) - order.indexOf(b.room.type) || area(b.room.polygon) - area(a.room.polygon))
+  return all[0] ?? null
 }
 
 /** Finish the wall the TV (or, failing that, the sofa) stands against with a feature material. */

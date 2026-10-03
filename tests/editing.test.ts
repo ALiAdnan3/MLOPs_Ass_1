@@ -114,3 +114,17 @@ describe('§72 finishes by instruction', () => {
     expect(p.floors.flatMap((f) => f.stairs).every((s) => /wood/.test(s.material ?? ''))).toBe(true)
   })
 })
+
+describe('feature wall targets the named room', () => {
+  beforeEach(() => {
+    loadHouse()
+  })
+  it('puts stone on the kitchen when the kitchen is named', async () => {
+    const p0 = getProject()
+    const fk = p0.floors.find((f) => f.rooms.some((r) => r.type === 'kitchen'))!
+    useUI.getState().set({ floorId: fk.id })
+    const kitchen = fk.rooms.find((r) => r.type === 'kitchen')!
+    const r = await applyEditPlan(parseEditOffline('Make the feature wall in the kitchen stone', getProject(), fk.id), 'kw')
+    expect(r.message).toMatch(new RegExp(kitchen.name))
+  })
+})

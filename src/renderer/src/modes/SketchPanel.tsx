@@ -34,6 +34,10 @@ export function SketchPanel() {
   const create = (then: 'plan' | '3d') => {
     if (!r || !floor) return
     const adding = st.mode === 'add' && floor.rooms.length > 0
+    if (!r.rooms.length) {
+      useUI.getState().toast({ kind: 'warning', title: 'No new rooms to add', body: adding ? 'Draw the new room outside the current walls; its outline can share an existing wall.' : 'Recognize a sketch with closed room outlines first.' })
+      return
+    }
     let warnings: string[] = []
     let count = r.rooms.length
     commit(adding ? `Add sketched room${r.rooms.length === 1 ? '' : 's'} (${floor.name})` : `Floor plan from sketch (${floor.name})`, (d) => {

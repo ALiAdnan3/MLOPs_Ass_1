@@ -378,12 +378,18 @@ interface PromptReq {
   resolve: (v: string | null) => void
 }
 let setPrompt: ((r: PromptReq | null) => void) | null = null
+let pendingPrompt: ((v: string | null) => void) | null = null
 
 /** Ask for a short text in an in-app dialog. Resolves null when cancelled. */
 export function askText(title: string, value = '', opts: { label?: string; placeholder?: string; confirm?: string } = {}): Promise<string | null> {
   return new Promise((resolve) => {
     if (!setPrompt) return resolve(null)
-    setPrompt({ title, value, ...opts, resolve })
+    pendingPrompt?.(null)
+    pendingPrompt = resolve
+    setPrompt({ title, value, ...opts, resolve: (v) => {
+        if (pendingPrompt === resolve) pendingPrompt = null
+        resolve(v)
+      } })
   })
 }
 
