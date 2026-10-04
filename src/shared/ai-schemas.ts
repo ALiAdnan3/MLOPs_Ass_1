@@ -127,6 +127,7 @@ export const EDIT_OPS = [
   'regenerate',
   'improve_layout',
   'add_exterior_lighting',
+  'set_solar',
   'answer'
 ] as const
 
@@ -179,5 +180,6 @@ Rules:
 - apply_uploaded_material: the user refers to "this marble/material" they uploaded; target = room, value = surface.
 - set_style: value = architectural style. set_roof: value = flat | hip | gable | shed | mansard. set_window_scale: amount = multiplier (1.3 = 30% larger).
 - set_requirement + regenerate for changes that need a new layout (e.g. more bedrooms): value = "field=value".
+- set_solar: rooftop solar panels; amount = system size in kW (0 removes them), or value "fill" to cover the open roof.
 - improve_layout fixes validation problems; answer = the user only asked a question (put the answer in reply).
 Keep reply to one or two sentences describing the change.`

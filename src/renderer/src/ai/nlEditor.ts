@@ -1,5 +1,7 @@
 import type { ArchitecturalStyle, Floor, Project, Requirements, Room, RoomType, RoofType, SiteArea, SiteAreaKind, Vec2 } from '../core/model/types'
 import { EDIT_OPS } from '../../../shared/ai-schemas'
+import { qiblaVector, plotLocation } from '../core/location'
+import { PANEL, countSolarPanels, layoutSolar, placeSolarPanels, removeSolarPanels, solarEconomics, specificYield } from '../planner/solar'
 import { ROOM_SPECS, spec, isBathType } from '../core/constraints/rooms'
 import { bbox, area, centroid, differencePolys, intersectPolys, largestInscribedRect, unionPolys, rectPoly, pointInPolygon } from '../core/geometry/polygon'
 import { FT, formatLength, formatAreaFor } from '../core/units/units'
@@ -266,6 +268,14 @@ export function parseEditOffline(text: string, p: Project, floorId: string): Edi
       const v = /vertical|strip/.test(c) ? 'vertical' : /facade|façade|wash|elevation|front/.test(c) ? 'wash' : /garden/.test(c) ? 'garden' : /gate/.test(c) ? 'gate' : 'all'
       ops.push(op({ op: 'add_exterior_lighting', value: v }))
     }
+    // rooftop solar (amendment A2)
+    if (/\bsolar\b|\bpv\b/.test(c) && !/\?|\bhow (much|many)\b/.test(c)) {
+      const kw = c.match(/(\d+(?:\.\d+)?)\s*(?:kw|kilowatts?)\b/)
+      const fill = /\b(fill|whole|entire|full|max|maximum|all)\b/.test(c)
+      if (/\b(remove|delete|take off|no|without)\b/.test(c)) ops.push(op({ op: 'set_solar', amount: 0 }))
+      else if (kw) ops.push(op({ op: 'set_solar', amount: Number(kw[1]) }))
+      else ops.push(op({ op: 'set_solar', value: fill ? 'fill' : null, amount: fill ? null : 5 }))
+    }
     // materials
     const mat = MATERIAL_WORDS.find(([re]) => re.test(c))?.[1]
     // "TV wall → stone", "feature wall in stone": the wall behind the TV / sofa of a lounge
@@ -414,6 +424,8 @@ function describeOps(ops: EditOp[], p: Project, floorId: string): string {
           return `Add a window to ${name(o.target)}`
         case 'add_exterior_lighting':
           return 'Add exterior lighting'
+        case 'set_solar':
+          return o.amount === 0 ? 'Remove the solar panels' : o.value === 'fill' ? 'Cover the roof with solar panels' : `Add a ${o.amount ?? 5} kW solar system`
         case 'improve_layout':
           return 'Fix layout problems'
         case 'add_basement':
@@ -525,7 +537,7 @@ export async function applyEditPlan(plan: EditPlan, label: string): Promise<Edit
   // ambiguity check before touching the model
   for (const o of plan.operations) {
     for (const ref of [o.target, o.other]) {
-      if (!ref || ['add_site_area', 'scale_site_area', 'set_exterior_material', 'set_floor_height', 'adjust_floor_height', 'set_style', 'set_roof', 'add_exterior_lighting', 'set_window_scale'].includes(o.op)) continue
+      if (!ref || ['add_site_area', 'scale_site_area', 'set_exterior_material', 'set_floor_height', 'adjust_floor_height', 'set_style', 'set_roof', 'add_exterior_lighting', 'set_window_scale', 'set_solar'].includes(o.op)) continue
       if (p0.floors.some((f) => f.rooms.some((r) => r.id === ref))) continue
       const m = roomMentions(ref, p0, floorId)[0]
       if (m && !m.hit && m.ambiguous.length > 1) {
@@ -629,7 +641,7 @@ function execute(d: Project, o: EditOp, floorId: string): string | null {
         if (res && typeof res === 'object' && 'ok' in res && !(res as { ok: boolean }).ok) throw new EditError(`${room.name} can't grow that way: ${(res as { reason?: string }).reason ?? 'the plot edge or stairs are in the way'}.`)
       }
       const nb = bbox(floor.rooms.find((r) => r.id === room.id)!.polygon)
-      refurnishRoom(floor, room.id, d.requirements.preferences.luxury)
+      refurnishRoom(floor, room.id, d.requirements.preferences.luxury, qiblaVector(d.plot))
       return `${room.name} is now ${formatLength(nb.w, u)} × ${formatLength(nb.h, u)}`
     }
     case 'set_room_size': {
@@ -639,7 +651,7 @@ function execute(d: Project, o: EditOp, floorId: string): string | null {
       if (w) setRoomSize(floor, room.id, 'x', conv(w), s)
       if (l) setRoomSize(floor, room.id, 'y', conv(l), s)
       if (!w && o.amount) setRoomSize(floor, room.id, o.axis === 'length' ? 'y' : 'x', toMeters(o.amount, o.unit), s)
-      refurnishRoom(floor, room.id, d.requirements.preferences.luxury)
+      refurnishRoom(floor, room.id, d.requirements.preferences.luxury, qiblaVector(d.plot))
       const nb = bbox(floor.rooms.find((r) => r.id === room.id)!.polygon)
       return `${room.name} is now ${formatLength(nb.w, u)} × ${formatLength(nb.h, u)}`
     }
@@ -648,8 +660,8 @@ function execute(d: Project, o: EditOp, floorId: string): string | null {
       const b = mustRoom(d, o.other, floorId)
       if (a.floor.id !== b.floor.id) throw new EditError(`${a.room.name} and ${b.room.name} are on different floors.`)
       if (!swapRooms(a.floor, a.room.id, b.room.id, s)) throw new EditError(`${a.room.name} and ${b.room.name} could not be swapped.`)
-      refurnishRoom(a.floor, a.room.id, d.requirements.preferences.luxury)
-      refurnishRoom(a.floor, b.room.id, d.requirements.preferences.luxury)
+      refurnishRoom(a.floor, a.room.id, d.requirements.preferences.luxury, qiblaVector(d.plot))
+      refurnishRoom(a.floor, b.room.id, d.requirements.preferences.luxury, qiblaVector(d.plot))
       return `${a.room.name} and ${b.room.name} swapped places`
     }
     case 'move_room_near': {
@@ -667,8 +679,8 @@ function execute(d: Project, o: EditOp, floorId: string): string | null {
       const ratio = area(pick.polygon) / aArea
       if (ratio < 0.45 || ratio > 2.2) throw new EditError(`the rooms next to ${b.room.name} are too different in size to trade with ${a.room.name}.`)
       swapRooms(f, a.room.id, pick.id, s)
-      refurnishRoom(f, a.room.id, d.requirements.preferences.luxury)
-      refurnishRoom(f, pick.id, d.requirements.preferences.luxury)
+      refurnishRoom(f, a.room.id, d.requirements.preferences.luxury, qiblaVector(d.plot))
+      refurnishRoom(f, pick.id, d.requirements.preferences.luxury, qiblaVector(d.plot))
       return `${a.room.name} moved next to ${b.room.name} (it traded places with ${pick.name})`
     }
     case 'add_room_beside':
@@ -702,8 +714,8 @@ function execute(d: Project, o: EditOp, floorId: string): string | null {
       const fresh = floor.rooms.find((r) => r.id === nr.id)!
       const host2 = floor.rooms.find((r) => r.id === room.id)!
       if (!floor.openings.some((op2) => op2.kind === 'door' && sharedWalls(floor, fresh, host2).some((w) => w.wall.id === op2.wallId))) addDoor(floor, floor.openings, host2, fresh, 'single', isBathType(type) ? 0.76 : 0.9, uid, { swingInto: fresh })
-      refurnishRoom(floor, host2.id, d.requirements.preferences.luxury)
-      refurnishRoom(floor, fresh.id, d.requirements.preferences.luxury)
+      refurnishRoom(floor, host2.id, d.requirements.preferences.luxury, qiblaVector(d.plot))
+      refurnishRoom(floor, fresh.id, d.requirements.preferences.luxury, qiblaVector(d.plot))
       const nb = bbox(fresh.polygon)
       return `Added ${spec(type).label.toLowerCase()} (${formatLength(nb.w, u)} × ${formatLength(nb.h, u)}) taken from ${room.name}`
     }
@@ -718,7 +730,7 @@ function execute(d: Project, o: EditOp, floorId: string): string | null {
       if (neighbours[0]) {
         const merged = mergeRooms(floor, [neighbours[0].r.id, room.id], s)
         if (merged) {
-          refurnishRoom(floor, merged.id, d.requirements.preferences.luxury)
+          refurnishRoom(floor, merged.id, d.requirements.preferences.luxury, qiblaVector(d.plot))
           return `${room.name} removed; its space joined ${neighbours[0].r.name}`
         }
       }
@@ -742,7 +754,7 @@ function execute(d: Project, o: EditOp, floorId: string): string | null {
       room.floorMaterial = undefined
       room.wallMaterial = undefined
       refreshFloor(floor, s)
-      refurnishRoom(floor, room.id, d.requirements.preferences.luxury)
+      refurnishRoom(floor, room.id, d.requirements.preferences.luxury, qiblaVector(d.plot))
       return `${old} is now a ${spec(t).label.toLowerCase()}`
     }
     case 'set_garage_cars': {
@@ -762,7 +774,7 @@ function execute(d: Project, o: EditOp, floorId: string): string | null {
       r.garage = { cars, storage: r.garage?.storage ?? false, workshop: r.garage?.workshop ?? false, evCharger: r.garage?.evCharger ?? false }
       d.requirements.outdoor.cars = cars
       d.requirements.outdoor.garage = true
-      refurnishRoom(floor, r.id, d.requirements.preferences.luxury)
+      refurnishRoom(floor, r.id, d.requirements.preferences.luxury, qiblaVector(d.plot))
       const nb = bbox(r.polygon)
       return `Garage now fits ${cars} cars (${formatLength(nb.w, u)} × ${formatLength(nb.h, u)})`
     }
@@ -949,6 +961,19 @@ function execute(d: Project, o: EditOp, floorId: string): string | null {
       if (!w) throw new EditError(`${room.name} has no free outside wall for another window.`)
       return `Added a ${formatLength(w.width, u)} window to ${room.name}`
     }
+    case 'set_solar': {
+      if (o.amount === 0) {
+        removeSolarPanels(d)
+        return 'Solar panels removed from the roof'
+      }
+      const fit = layoutSolar(d, { moveSoft: true }).panels.length
+      if (!fit) return 'The roof has no open space for solar panels'
+      const want = o.value === 'fill' || o.amount == null ? Infinity : Math.ceil(((o.amount ?? 5) * 1000) / PANEL.watt)
+      const n = placeSolarPanels(d, uid, want)
+      const kw = (n * PANEL.watt) / 1000
+      const short = want !== Infinity && n < want ? ` (the open roof fits ${fit} panels, so ${kw.toFixed(1)} kW is the most it takes)` : ''
+      return `${n} solar panels, ${kw.toFixed(1)} kWp, placed on the roof facing the ${plotLocation(d.plot).lat >= 0 ? 'south' : 'north'}${short}; the Cost tab shows units and payback`
+    }
     case 'add_exterior_lighting': {
       const L = d.exterior.lighting
       const v = o.value ?? 'all'
@@ -1028,9 +1053,16 @@ function answerQuestion(q: string, p: Project, floorId: string): string {
     const b = bbox(m.hit.room.polygon)
     return `${m.hit.room.name} is ${formatLength(b.w, u)} × ${formatLength(b.h, u)}, ${formatAreaFor(area(m.hit.room.polygon), u)}, on the ${m.hit.floor.name.toLowerCase()} floor, with a ${formatLength(m.hit.floor.height - m.hit.floor.slabThickness, u)} ceiling.`
   }
+  if (/\bsolar\b/.test(t)) {
+    const fit = layoutSolar(h, { moveSoft: true })
+    const n = countSolarPanels(h)
+    const kw = (n * PANEL.watt) / 1000
+    const eco = solarEconomics({ ...fit, kwp: kw, yearlyKwh: kw * specificYield(plotLocation(p.plot).lat) }, p.costRates)
+    return `The open roof fits ${fit.panels.length} panels (${fit.kwp.toFixed(1)} kWp). ${n ? `${n} are placed now: ${kw.toFixed(1)} kWp, about ${Math.round(eco.monthlyKwh)} units a month, paying back in about ${eco.payback.toFixed(1)} years.` : 'None are placed yet; say "add a 5 kW solar system" or "fill the roof with solar panels".'}`
+  }
   if (/\b(cost|price|budget|estimate|expensive|how much)\b/.test(t)) {
     const e = estimate(measure(h, p.materials), p.costRates)
-    return `The rough construction estimate is ${formatMoney(e.total, p.costRates.currency)} at ${p.costRates.region} rates. The Estimate tab breaks it down by category; it is a preliminary figure, not a quote.`
+    return `The rough construction estimate is ${formatMoney(e.total, p.costRates.currency)} at ${p.costRates.region} rates: grey structure ${formatMoney(e.grey, p.costRates.currency)} and finishing ${formatMoney(e.finishing, p.costRates.currency)}. The Cost tab breaks it down by category; it is a preliminary figure, not a quote.`
   }
   if (/\bcovered\b/.test(t)) return `Covered area on the ground floor is ${formatAreaFor(a.coveredArea, u)}; total floor area across all floors is ${formatAreaFor(a.totalFloorArea, u)}.`
   if (/\b(total|floor) area\b|\bhow big is the house\b/.test(t)) return `Total floor area is ${formatAreaFor(a.totalFloorArea, u)} over ${st.floors} floors on a ${formatAreaFor(a.plotArea, u)} plot.`

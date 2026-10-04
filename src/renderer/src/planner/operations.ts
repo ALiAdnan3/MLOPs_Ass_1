@@ -355,11 +355,11 @@ export function setFloorHeight(p: Project, floorId: string, height: number) {
   for (const o of f.openings) if (o.kind === 'window' && o.sill + o.height > f.height - f.slabThickness - 0.05) o.height = Math.max(0.4, f.height - f.slabThickness - 0.15 - o.sill)
 }
 
-export function refurnishRoom(floor: Floor, roomId: string, luxury = 50) {
+export function refurnishRoom(floor: Floor, roomId: string, luxury = 50, qibla?: Vec2) {
   const room = floor.rooms.find((r) => r.id === roomId)
   if (!room) return
   floor.furniture = floor.furniture.filter((f) => !pointInPolygon(f.position, room.polygon))
-  floor.furniture.push(...furnishRoom(floor, room, uid, { luxury }))
+  floor.furniture.push(...furnishRoom(floor, room, uid, { luxury, qibla }))
 }
 
 export function relabel(p: Project) {

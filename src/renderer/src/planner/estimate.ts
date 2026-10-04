@@ -96,9 +96,16 @@ export interface CostLine {
   label: string
   qty: string
   amount: number
+  /**
+   * Builders in Pakistan quote a house in two phases (amendment A3): the grey structure
+   * (frame, brickwork, slab, roof, wiring and pipes) and the finishing that goes on top.
+   */
+  phase: 'grey' | 'finishing'
 }
 
-export function estimate(q: Quantities, r: CostRates): { lines: CostLine[]; total: number } {
+const GREY = new Set(['structure', 'electrical', 'plumbing', 'roofing'])
+
+export function estimate(q: Quantities, r: CostRates): { lines: CostLine[]; total: number; grey: number; finishing: number } {
   const m2 = (v: number) => `${Math.round(v * 10.764).toLocaleString('en-US')} ft²`
   const lines: CostLine[] = [
     { key: 'structure', label: 'Grey structure', qty: m2(q.builtArea), amount: q.builtArea * r.structure },
@@ -108,14 +115,17 @@ export function estimate(q: Quantities, r: CostRates): { lines: CostLine[]; tota
     { key: 'windows', label: 'Windows', qty: `${q.windows}`, amount: q.windows * r.window },
     { key: 'kitchen', label: 'Kitchens', qty: `${q.kitchens}`, amount: q.kitchens * r.kitchen },
     { key: 'bathrooms', label: 'Bathrooms', qty: `${q.bathrooms}`, amount: q.bathrooms * r.bathroom },
-    { key: 'electrical', label: 'Electrical', qty: m2(q.builtArea), amount: q.builtArea * r.electrical },
-    { key: 'plumbing', label: 'Plumbing', qty: m2(q.builtArea), amount: q.builtArea * r.plumbing },
+    { key: 'electrical', label: 'Electrical wiring', qty: m2(q.builtArea), amount: q.builtArea * r.electrical },
+    { key: 'plumbing', label: 'Plumbing pipes', qty: m2(q.builtArea), amount: q.builtArea * r.plumbing },
     { key: 'paint', label: 'Paint & wall finish', qty: m2(q.paintArea + q.wallTileArea + q.claddingArea), amount: q.paintArea * r.paint + (q.wallTileArea + q.claddingArea) * r.wallFinish },
     { key: 'exterior', label: 'Exterior finish', qty: m2(q.facadeArea), amount: q.facadeArea * r.exterior },
     { key: 'roofing', label: 'Roofing', qty: m2(q.roofArea), amount: q.roofArea * r.roofing },
     { key: 'landscaping', label: 'Landscaping', qty: m2(q.landscapeArea), amount: q.landscapeArea * r.landscaping }
-  ]
-  return { lines, total: lines.reduce((s, l) => s + l.amount, 0) }
+  ].map((l) => ({ ...l, phase: GREY.has(l.key) ? 'grey' : 'finishing' }) as CostLine)
+  const sum = (ph: CostLine['phase']) => lines.filter((l) => l.phase === ph).reduce((s, l) => s + l.amount, 0)
+  const grey = sum('grey')
+  const finishing = sum('finishing')
+  return { lines, total: grey + finishing, grey, finishing }
 }
 
 /** Purchase quantities with typical wastage. */

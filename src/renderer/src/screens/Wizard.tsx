@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { makePlot } from '../core/model/defaults'
+import { AuthoritySelect } from '../ui/AuthoritySelect'
+import { setbacksFor } from '../core/bylaws'
+import { CitySelect } from '../ui/CitySelect'
 import { ArrowLeft, ArrowRight, Sparkles, Check } from 'lucide-react'
 import { useUI } from '../state/ui'
 import { useWizard } from './wizardState'
@@ -216,6 +220,22 @@ function PlotStep() {
       </div>
       <h3 style={{ marginTop: 26, marginBottom: 10 }}>Orientation</h3>
       <div className="form-grid">
+        <div className="form-row">
+          <label>City</label>
+          <CitySelect plot={w.plot} onChange={(loc) => w.setPlot((p) => (p.location = loc))} />
+        </div>
+        <div className="form-row">
+          <label>Building rules</label>
+          <AuthoritySelect
+            value={w.plot.authority}
+            onChange={(a) =>
+              w.setPlot((p) => {
+                p.authority = a
+                p.setbacks = a ? setbacksFor(a, p) : makePlot(p.width, p.depth, p.presetId).setbacks
+              })
+            }
+          />
+        </div>
         <div className="form-row">
           <label>Road side faces</label>
           <Seg value={w.plot.roadSide} onChange={(v: Compass) => w.setPlot((p) => (p.roadSide = v))} full options={(['N', 'E', 'S', 'W'] as Compass[]).map((c) => ({ value: c, label: { N: 'North', E: 'East', S: 'South', W: 'West' }[c] }))} />

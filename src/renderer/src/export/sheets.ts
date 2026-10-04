@@ -1,6 +1,7 @@
 import type { Floor, HouseState, Project, Vec2 } from '../core/model/types'
 import type { DrawContext, Stroke } from '../render/draw/types'
-import { drawPlan, drawDimension, drawNorthArrow, drawElectrical, drawLight, type PlanMode } from '../render/draw/plan'
+import { drawPlan, drawDimension, drawNorthArrow, drawQiblaMark, drawElectrical, drawLight, type PlanMode } from '../render/draw/plan'
+import { qiblaAngle } from '../core/location'
 import { PRINT_PLAN } from '../render/draw/theme'
 import { drawElevation, drawSection, sectionLines, roofFaces, type ElevationSide, type SectionAxis, type DrawnExtent } from './elevation'
 import { TransformContext } from './contexts'
@@ -314,6 +315,7 @@ function titleBlock(dc: DrawContext, p: Project, d: DrawingSpec, scale: number, 
   // north arrow for plans
   if (d.kind !== 'elevation' && d.kind !== 'section') {
     const na = { x: x0 + TB_W / 2, y: y + 16 }
+    drawQiblaMark(dc, na, 6, qiblaAngle(p.plot), PRINT_PLAN)
     drawNorthArrow(dc, na, 6, northAngle(p.plot), PRINT_PLAN)
     y += 30
     dc.line({ x: x0, y }, { x: x1, y }, S(0.5))

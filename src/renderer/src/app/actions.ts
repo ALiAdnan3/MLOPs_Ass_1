@@ -23,6 +23,7 @@ export function houseOf(p: Project): HouseState {
 export function projectFromDesign(d: DesignOption, req: Requirements, all: DesignOption[] = [d], name?: string): Project {
   const p = newProject(name ?? defaultName(d.house.plot), d.house.plot)
   p.requirements = req
+  if (d.house.plot.location) p.settings.lighting.latitude = d.house.plot.location.lat
   p.floors = structuredClone(d.house.floors)
   p.site = structuredClone(d.house.site)
   p.exterior = structuredClone(d.house.exterior)

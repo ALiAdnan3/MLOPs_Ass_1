@@ -18,6 +18,8 @@ interface Ctx {
   R: Rect
   placed: Rect[]
   blocked: Rect[]
+  /** Only what a door leaf actually sweeps (width × width): the last resort for essentials like a WC. */
+  swing: Rect[]
   /** Zones where only low items (under window sills) may go. */
   lowOnly: { rect: Rect; maxH: number }[]
   doorEdges: Set<EdgeName>
@@ -25,6 +27,8 @@ interface Ctx {
   items: FurnitureItem[]
   ids: IdFactory
 }
+
+const facingDot = (rot: number, v: Vec2) => -Math.sin(rot) * v.x + Math.cos(rot) * v.y
 
 function edgeLen(R: Rect, e: EdgeName) {
   return e === 'top' || e === 'bottom' ? R.w : R.h
@@ -72,6 +76,17 @@ function add(ctx: Ctx, key: string, r: Rect, rot: number, over: Partial<Furnitur
   ctx.items.push(item)
   if (key !== 'rug' && key !== 'prayer-mat') ctx.placed.push(r)
   return item
+}
+
+/** Run `fn` with only door swings reserved (not the comfort clearance in front of doors). */
+function withSwingOnly<T>(ctx: Ctx, fn: () => T): T {
+  const keep = ctx.blocked
+  ctx.blocked = ctx.swing
+  try {
+    return fn()
+  } finally {
+    ctx.blocked = keep
+  }
 }
 
 /** Place against a wall. `prefer`: 'center' | 'corner' | 'start' | 'end'. */
@@ -130,6 +145,8 @@ const opposite: Record<EdgeName, EdgeName> = { top: 'bottom', bottom: 'top', lef
 export interface FurnishOptions {
   cars?: number
   luxury?: number
+  /** Plan direction of the Qibla: WCs are seated side-on to it where the room allows. */
+  qibla?: Vec2
 }
 
 export function furnishRoom(floor: Floor, room: Room, ids: IdFactory, opt: FurnishOptions = {}): FurnitureItem[] {
@@ -137,7 +154,7 @@ export function furnishRoom(floor: Floor, room: Room, ids: IdFactory, opt: Furni
   const inset = 0.1
   const R: Rect = { x: R0.x + inset, y: R0.y + inset, w: R0.w - 2 * inset, h: R0.h - 2 * inset }
   if (R.w < 0.6 || R.h < 0.6) return []
-  const ctx: Ctx = { R, placed: [], blocked: [], lowOnly: [], doorEdges: new Set(), windowEdges: new Map(), items: [], ids }
+  const ctx: Ctx = { R, placed: [], blocked: [], swing: [], lowOnly: [], doorEdges: new Set(), windowEdges: new Map(), items: [], ids }
 
   // door swings, passages and windows → obstacles
   for (const x of wallsOfRoom(floor, room)) {
@@ -150,6 +167,7 @@ export function furnishRoom(floor: Floor, room: Room, ids: IdFactory, opt: Furni
       const a = { x: w.a.x + dir.x * x.t0, y: w.a.y + dir.y * x.t0 }
       const b = { x: w.a.x + dir.x * x.t1, y: w.a.y + dir.y * x.t1 }
       ctx.blocked.push(stripInside(R, a, b, 0.9))
+      ctx.swing.push(stripInside(R, a, b, 0.6))
       if (edge) ctx.doorEdges.add(edge)
       continue
     }
@@ -159,6 +177,7 @@ export function furnishRoom(floor: Floor, room: Room, ids: IdFactory, opt: Furni
       const b = { x: w.a.x + dir.x * (o.offset + o.width / 2), y: w.a.y + dir.y * (o.offset + o.width / 2) }
       if (o.kind === 'door') {
         ctx.blocked.push(stripInside(R, a, b, Math.min(o.width + 0.25, 1.4), 0.15))
+        ctx.swing.push(stripInside(R, a, b, Math.min(o.width, 1), 0))
         if (edge) ctx.doorEdges.add(edge)
       } else {
         ctx.lowOnly.push({ rect: stripInside(R, a, b, 0.5, 0.05), maxH: Math.max(0.1, o.sill - 0.02) })
@@ -221,8 +240,14 @@ export function furnishRoom(floor: Floor, room: Room, ids: IdFactory, opt: Furni
     case 'bathroom':
     case 'servant_bath':
     case 'powder': {
-      const far = q
-      onWall(ctx, 'wc', far, 'corner')
+      // every bathroom gets a WC; in a small one it sits beside the door, clear of the leaf.
+      // Walls that seat it side-on to the Qibla are exhausted before any that would not.
+      const qb = opt.qibla
+      const sideOn = qb ? q.filter((e) => Math.abs(facingDot(EDGE_ROT[e], qb)) < Math.SQRT1_2) : q
+      const rest = q.filter((e) => !sideOn.includes(e))
+      const wc = (es: EdgeName[]) =>
+        es.length ? onWall(ctx, 'wc', es, 'corner') ?? withSwingOnly(ctx, () => onWall(ctx, 'wc', es, 'corner') ?? onWall(ctx, 'wc', es, 'corner', { w: 0.38, d: 0.55 })) : null
+      wc(sideOn) ?? wc(rest)
       onWall(ctx, t === 'powder' || minSide < 1.5 ? 'basin' : 'vanity', [...q].reverse(), 'center') ?? onWall(ctx, 'basin', q, 'corner')
       if (t !== 'powder') {
         const big = R.w * R.h > 6.5 && minSide >= 1.8

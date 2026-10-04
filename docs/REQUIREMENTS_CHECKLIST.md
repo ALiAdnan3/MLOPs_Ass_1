@@ -2,7 +2,7 @@
 
 Source: [MASTER_PROMPT.md](MASTER_PROMPT.md) (74 sections; the same text as `Home_design_features.txt`).
 Status: `[x]` done and verified · `[~]` done with a stated limit. Every item is real functionality (§68).
-Verification: `npm test` (27 unit tests), `e2e/tour.py`, `e2e/wizard.py` and `e2e/final_scenario.py` (Playwright, §72 end to end).
+Verification: `npm test` (37 unit tests), `e2e/tour.py`, `e2e/wizard.py` and `e2e/final_scenario.py` (Playwright, §72 end to end).
 
 ## Product & platform
 
@@ -108,3 +108,12 @@ Verification: `npm test` (27 unit tests), `e2e/tour.py`, `e2e/wizard.py` and `e2
 - [x] §70 Non-expert flow
 - [x] §72 Final scenario passes end to end (`e2e/final_scenario.py`)
 - [x] §74 Build → run → test → fix at every milestone; Windows installer via `npm run dist`
+
+## Amendments (see [AMENDMENTS.md](AMENDMENTS.md))
+
+- [x] A1 City, Qibla needle on plans and sheets, WCs seated side-on to the Qibla, warning when one faces or backs it
+- [x] A2 Rooftop solar planner: equator-facing unshaded rows, kWp, units, saving, payback; assistant commands
+- [x] A3 Estimate split into grey structure and finishing, each with its rate per ft²
+- [x] A4 LDA (2019, amended 2020) and DHA Lahore (2026) residential rules: setbacks applied, designs generated to comply, checks with sources, redesign within the rules
+- [x] A7 Every generated bathroom is usable (WC fits; never under 3′9″ wide or 1.9 m²), with fewer, shared bathrooms when a plot is too tight
+

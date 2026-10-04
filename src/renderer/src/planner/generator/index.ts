@@ -16,8 +16,8 @@ import type {
 } from '../../core/model/types'
 import { seededIds, type IdFactory } from '../../core/model/ids'
 import { exteriorForStyle, makeFloor } from '../../core/model/defaults'
-import { rectPoly, type Rect, bbox, rectsOverlap } from '../../core/geometry/polygon'
-import { spec, isBedroomType } from '../../core/constraints/rooms'
+import { rectPoly, type Rect, bbox, rectsOverlap, area, pointInPolygon, differencePolys } from '../../core/geometry/polygon'
+import { spec, isBedroomType, isBathType } from '../../core/constraints/rooms'
 import { ft } from '../../core/units/units'
 import { rng, type Rng } from './random'
 import { buildProgram, itemArea, levelName, levelsFor, ROOF_LEVEL, stairDims, type ProgramItem } from './program'
@@ -28,6 +28,10 @@ import { rebuildWalls, effectiveKind, wallsOfRoom } from '../walls'
 import { addDoor, placeWindows, sharedWalls, DOOR_W, roomRect } from './openings'
 import { fitStair, risersFor, stairShape } from '../stairs'
 import { furnishFloor } from '../furnish'
+import { qiblaVector } from '../../core/location'
+import { placeSolarPanels } from '../solar'
+import { AUTHORITIES, bandFor, checkBylaws } from '../../core/bylaws'
+import { FT } from '../../core/units/units'
 import { designLandscape, rectMinus } from './landscape'
 import { applySmartLabels } from '../labels'
 import { designStats } from '../metrics'
@@ -56,6 +60,8 @@ export interface GenerateOptions {
   iterations?: number
   /** Progress through the §55 pipeline. */
   onStage?: (stage: PipelineStage) => void
+  /** Internal: tightens the first-floor step-back when a layout came out over the limit. */
+  firstShareScale?: number
 }
 
 export const PIPELINE = ['Requirements', 'Constraints', 'Space allocation', 'Room graph', 'Floor plans', 'Structure', 'Openings', 'Validation', 'Explanation'] as const
@@ -75,7 +81,106 @@ export class DesignGenerationError extends Error {
 
 const HUB_TYPES = new Set<RoomType>(['foyer', 'tv_lounge', 'living', 'family', 'corridor', 'basement_lounge', 'dining', 'stair'])
 
+/**
+ * Bathrooms a person cannot actually use (amendment A7): no room for a WC, or narrower / smaller
+ * than the tightest workable layout (WC and basin, 3'9" wide). Powder rooms may be smaller.
+ */
+export function unusableBaths(h: HouseState): string[] {
+  const out: string[] = []
+  for (const f of h.floors)
+    for (const r of f.rooms) {
+      if (!isBathType(r.type)) continue
+      const b = bbox(r.polygon)
+      const powder = r.type === 'powder'
+      const wc = f.furniture.some((x) => x.type === 'wc' && pointInPolygon(x.position, r.polygon))
+      if (Math.min(b.w, b.h) < (powder ? 0.9 : 1.15) || area(r.polygon) < (powder ? 1.2 : 1.9) || !wc) out.push(r.name)
+    }
+  return out
+}
+
+const bathCount = (h: HouseState) => h.floors.reduce((s, f) => s + f.rooms.filter((r) => isBathType(r.type)).length, 0)
+
+/**
+ * Generate one design. If a bathroom comes out unusable, other layouts are tried (another seed,
+ * then one bathroom fewer so bedrooms share) and the one with the most usable bathrooms wins;
+ * the design then says what changed instead of delivering cupboard-sized bathrooms.
+ */
 export function generateDesign(req: Requirements, plot: Plot, strategy: DesignStrategy, opts: GenerateOptions): DesignOption {
+  const first = generateCompliant(req, plot, strategy, opts)
+  const rate = (d: DesignOption) => {
+    const bad = unusableBaths(d.house).length
+    const all = bathCount(d.house)
+    return { bad, all, usable: all - bad }
+  }
+  let best = first
+  let br = rate(first)
+  if (!br.bad) return first
+  const seed0 = first.seed
+  for (let drop = 0; drop <= 2 && br.bad; drop++) {
+    const n = req.rooms.bathrooms - drop
+    if (n < Math.max(1, Math.ceil(req.rooms.bedrooms / 2))) break
+    const r = structuredClone(req)
+    r.rooms.bathrooms = n
+    for (const k of drop === 0 ? [1, 2] : [0, 1]) {
+      const d = generateCompliant(r, plot, strategy, { ...opts, seed: seed0 + k * 7919 })
+      const dr = rate(d)
+      if (dr.usable > br.usable || (dr.usable === br.usable && dr.bad < br.bad)) {
+        best = d
+        br = dr
+      }
+      if (!dr.bad) break
+    }
+  }
+  if (best !== first && br.all < rate(first).all) best.warnings.unshift(`${br.all} ${br.all === 1 ? 'bathroom' : 'bathrooms'} instead of ${rate(first).all}, so each one is big enough to use on this plot; bedrooms without their own bathroom share one`)
+  const bad = unusableBaths(best.house)
+  if (bad.length) best.warnings.unshift(`${bad.join(', ')} ${bad.length === 1 ? 'is' : 'are'} too small to use comfortably; enlarge ${bad.length === 1 ? 'it' : 'them'} in the plan, choose fewer rooms or add a floor`)
+  return best
+}
+
+/**
+ * Under an authority's ground-coverage limit (amendment A4), a design that covers too much is
+ * regenerated with a deeper rear open space (more garden) until it complies; the plot keeps the
+ * authority's own setbacks.
+ */
+function generateCompliant(req: Requirements, plot: Plot, strategy: DesignStrategy, opts: GenerateOptions): DesignOption {
+  let d = generateOnce(req, plot, strategy, opts)
+  const a = plot.authority
+  if (!a) return d
+  const band = bandFor(a, plot)
+  // first-floor share: correct the step-back from the measured result, then try other layouts
+  // (a stair pinned at the front can block it)
+  const firstOver = (x: DesignOption) => checkBylaws(x.house, a, { plinth: 0.457, parapet: x.house.exterior.parapetHeight }).find((c) => c.key === 'first' && !c.ok)
+  let scale = 0.985
+  if (band.firstOfGround !== undefined) {
+    for (let k = 0; k < 4 && firstOver(d); k++) {
+      const g = d.house.floors.find((f) => f.level === 0)!
+      const f1 = d.house.floors.find((f) => f.level === 1)!
+      const cov = (f: typeof g) => f.rooms.filter((r) => r.type !== 'void' && !spec(r.type).outdoor).reduce((s, r) => s + area(r.polygon), 0)
+      const ratio = cov(f1) / Math.max(1, cov(g))
+      scale *= (band.firstOfGround / ratio) * 0.99
+      d = generateOnce(req, plot, strategy, { ...opts, seed: k < 2 ? d.seed : d.seed + k * 104729, firstShareScale: scale })
+    }
+  }
+  const limit = band.coverage
+  if (limit === undefined) return d
+  let rear = plot.setbacks.rear
+  for (let k = 0; k < 4; k++) {
+    const over = checkBylaws(d.house, a, { plinth: 0.457, parapet: d.house.exterior.parapetHeight }).find((c) => c.key === 'coverage' && !c.ok)
+    if (!over) break
+    const g = d.house.floors.find((f) => f.level === 0)!
+    const covered = g.rooms.filter((r) => r.type !== 'void' && !spec(r.type).outdoor).reduce((s, r) => s + area(r.polygon), 0)
+    const gb = bbox(g.rooms.filter((r) => r.type !== 'void' && !spec(r.type).outdoor).flatMap((r) => r.polygon))
+    // start from the back yard the design actually has (garden wishes may already exceed the minimum)
+    rear = Math.max(rear, gb.y - bbox(plot.polygon).y) + ((covered - limit * area(plot.polygon)) / Math.max(1, gb.w)) * 1.25 + 0.15
+    const next = generateOnce(req, { ...plot, setbacks: { ...plot.setbacks, rear } }, strategy, { ...opts, seed: d.seed, firstShareScale: scale })
+    next.house.plot = { ...next.house.plot, setbacks: { ...plot.setbacks } }
+    next.warnings.unshift(`The house is kept to ${Math.round(limit * 100)}% ground coverage for ${AUTHORITIES[a].name}, so the back yard is deeper`)
+    d = next
+  }
+  return d
+}
+
+function generateOnce(req: Requirements, plot: Plot, strategy: DesignStrategy, opts: GenerateOptions): DesignOption {
   const seed = opts.seed ?? Math.floor(Math.random() * 1e9)
   const rnd = rng(seed)
   const ids = seededIds(seed)
@@ -167,7 +272,35 @@ export function generateDesign(req: Requirements, plot: Plot, strategy: DesignSt
   stage('Space allocation')
   // Column widths are shared by every floor (walls stack structurally), so each template is laid
   // out on all floors and scored by the total cost; the best template is refined further.
-  const frontsFor = (lv: number) => (lv === 0 ? groundFronts : lv > 0 ? upperFronts : undefined)
+  // authorities that cap the first floor at a share of the ground floor (amendment A4): the first
+  // floor steps back from the front and the strip becomes an open terrace over the rooms below
+  const firstShare = plot.authority ? bandFor(plot.authority, plot).firstOfGround : undefined
+  const firstPull = (xs: number[]) => {
+    if (firstShare === undefined || firstShare >= 1 || !levels.includes(1)) return 0
+    const cols = xs.length - 1
+    const w = (i: number) => xs[i + 1] - xs[i]
+    const gF = groundFronts && groundFronts.length === cols ? groundFronts : Array<number>(cols).fill(fp.y + fp.h)
+    const uF = upperFronts && upperFronts.length === cols ? upperFronts : Array<number>(cols).fill(fp.y + fp.h)
+    let ground = 0
+    let upper = 0
+    let W = 0
+    for (let i = 0; i < cols; i++) {
+      ground += w(i) * (gF[i] - fp.y)
+      upper += w(i) * (uF[i] - fp.y)
+      W += w(i)
+    }
+    if (garageRect) ground += garageRect.w * garageRect.h
+    const target = firstShare * ground * (opts.firstShareScale ?? 0.985)
+    return upper > target ? (upper - target) / W : 0
+  }
+  const frontsFor = (lv: number, xs: number[]) => {
+    const base = lv === 0 ? groundFronts : lv > 0 ? upperFronts : undefined
+    const d = lv === 1 ? firstPull(xs) : 0
+    if (!d) return base
+    const cols = xs.length - 1
+    const uF = base && base.length === cols ? base : Array<number>(cols).fill(fp.y + fp.h)
+    return uF.map((f) => f - d)
+  }
   const orderLv = [0, ...levels.filter((l) => l > 0), ...levels.filter((l) => l < 0)]
   const templates: number[][] = []
   if (forcedXs) templates.push(forcedXs)
@@ -200,7 +333,7 @@ export function generateDesign(req: Requirements, plot: Plot, strategy: DesignSt
         items: free,
         pins,
         columnXs: xs,
-        columnFronts: frontsFor(lv),
+        columnFronts: frontsFor(lv, xs),
         level: lv,
         prefs: req.preferences,
         weights: info.weights,
@@ -287,6 +420,23 @@ export function generateDesign(req: Requirements, plot: Plot, strategy: DesignSt
     notes.push(`${env.cars}-car ${enclosed ? 'garage' : 'car porch'} at the front, next to the entrance`)
   }
   const first = floors.find((f) => f.level === 1)
+  const pull = firstPull(columnXs)
+  if (first && pull > 0.05) {
+    const cols = columnXs.length - 1
+    const uF = upperFronts && upperFronts.length === cols ? upperFronts : Array<number>(cols).fill(fp.y + fp.h)
+    for (let i = 0; i < cols; i++) {
+      const rect = { x: columnXs[i], y: uF[i] - pull, w: columnXs[i + 1] - columnXs[i], h: pull }
+      if (rect.h < 0.3 || rect.w < 1) continue
+      // a stair or void pinned from below keeps its place; the terrace takes the rest of the strip
+      const open = differencePolys(rectPoly(rect), ...first.rooms.map((r) => r.polygon))
+      for (const o of open) {
+        const ob = bbox(o.outer)
+        if (o.holes.length || ob.w < 1 || ob.h < 0.3) continue
+        first.rooms.push({ id: ids('rm'), name: 'Front Terrace', autoName: true, type: 'terrace', polygon: o.outer })
+      }
+    }
+    notes.push(`The first floor steps back ${(pull / FT).toFixed(1)} ft for a front terrace, keeping it within ${Math.round((firstShare ?? 1) * 100)}% of the ground floor as ${AUTHORITIES[plot.authority!].name} requires`)
+  }
   if (first && garageRect && req.outdoor.terrace && !upperCoversPorch) {
     first.rooms.push({ id: ids('rm'), name: 'Terrace', autoName: true, type: 'terrace', polygon: rectPoly(garageRect) })
   }
@@ -590,14 +740,12 @@ export function generateDesign(req: Requirements, plot: Plot, strategy: DesignSt
 
   // ── furniture ────────────────────────────────────────────────────────────
   for (const f of floors) {
-    f.furniture = furnishFloor(f, ids, { luxury: lux })
+    f.furniture = furnishFloor(f, ids, { luxury: lux, qibla: qiblaVector(plot) })
     if (f.kind === 'roof') {
       const terr = f.rooms.filter((r) => r.type === 'terrace').sort((a, b) => bbox(b.polygon).w * bbox(b.polygon).h - bbox(a.polygon).w * bbox(a.polygon).h)[0]
       if (terr) {
         const b = bbox(terr.polygon)
         f.furniture.push({ id: ids('fur'), type: 'water-tank', position: { x: b.x + 1.0, y: b.y + 1.0 }, rotation: 0, width: 1.3, depth: 1.3, height: 1.4 })
-        const n = Math.min(6, Math.floor((b.w - 3) / 1.2))
-        for (let i = 0; i < n; i++) f.furniture.push({ id: ids('fur'), type: 'solar-panel', position: { x: b.x + 2.6 + i * 1.2, y: b.y + b.h / 2 }, rotation: Math.PI, width: 1.05, depth: 2.1, height: 0.9 })
       }
     }
   }
@@ -611,6 +759,8 @@ export function generateDesign(req: Requirements, plot: Plot, strategy: DesignSt
 
   const house: HouseState = { plot: newPlot, floors, site: land.site, exterior }
   applySmartLabels(house)
+  // a typical home system (12 panels, about 7 kWp), facing the equator; the Cost tab resizes it
+  placeSolarPanels(house, ids, 12)
 
   // ── validation, scores, explanation ─────────────────────────────────────
   stage('Validation')

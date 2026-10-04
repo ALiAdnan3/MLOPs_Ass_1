@@ -303,6 +303,10 @@ export interface Plot {
   roadSide: Compass
   /** Extra rotation of true north relative to the road convention (deg). */
   northOffset: number
+  /** City / coordinates (sun latitude, Qibla). Missing on older projects: Lahore is assumed. */
+  location?: { city?: string; lat: number; lon: number }
+  /** Development authority whose residential rules apply (amendment A4); sets the setbacks. */
+  authority?: 'lda' | 'dha-lahore'
   corner: boolean
   cornerSide: 'left' | 'right'
   setbacks: { front: number; rear: number; left: number; right: number }
@@ -717,6 +721,9 @@ export interface CostRates {
   window: number
   kitchen: number
   bathroom: number
+  /** Rooftop solar (amendment A2): installed cost per kWp, and the price of one grid unit (kWh). */
+  solarPerKw?: number
+  tariffPerKwh?: number
 }
 
 export interface ProjectSettings {

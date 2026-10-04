@@ -1,4 +1,5 @@
 import { useProject, commit } from '../state/store'
+import { CitySelect } from '../ui/CitySelect'
 import { useUI } from '../state/ui'
 import { Seg, Slider, Switch } from '../ui/primitives'
 import { SEASONS, solarPosition, LIGHT_PRESETS, presetTime } from '../engine/lighting/sun'
@@ -8,6 +9,7 @@ import type { Quality } from '../core/model/types'
 /** 3D view settings: lighting (§35) and render quality (§2). */
 export function View3DPanel() {
   const L = useProject((s) => s.project.settings.lighting)
+  const plot = useProject((s) => s.project.plot)
   const quality = useUI((s) => s.quality)
   const set = useUI((s) => s.set)
   const sun = solarPosition(L.latitude, L.dayOfYear, L.time)
@@ -55,6 +57,18 @@ export function View3DPanel() {
         <div className="prop">
           <label>Season</label>
           <Seg value={String(SEASONS.reduce((b, s) => (Math.abs(s.day - L.dayOfYear) < Math.abs(b.day - L.dayOfYear) ? s : b)).day)} onChange={(v) => upd('Season', (l) => void (l.dayOfYear = Number(v)))} options={SEASONS.map((s) => ({ value: String(s.day), label: s.label }))} />
+        </div>
+        <div className="prop">
+          <label>City</label>
+          <CitySelect
+            plot={plot}
+            onChange={(loc) =>
+              commit(`Location: ${loc.city}`, (d) => {
+                d.plot.location = loc
+                d.settings.lighting.latitude = loc.lat
+              })
+            }
+          />
         </div>
         <div className="prop">
           <label>Latitude</label>

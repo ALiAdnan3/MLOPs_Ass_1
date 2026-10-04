@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { setbacksFor } from '../core/bylaws'
 import type { Plot, Requirements, Vec2 } from '../core/model/types'
 import { defaultRequirements, makePlot, plotFromPreset } from '../core/model/defaults'
 import type { ParsedRequirements, ParseFinding } from '../ai/requirementParser'
@@ -50,6 +51,9 @@ export const useWizard = create<WizardState>((set, get) => ({
     p.roadSide = keep.roadSide
     p.corner = keep.corner
     p.cornerSide = keep.cornerSide
+    p.location = keep.location
+    p.authority = keep.authority
+    if (p.authority) p.setbacks = setbacksFor(p.authority, p)
     p.northOffset = keep.northOffset
     set({ plot: p, plotMode: 'preset' })
   },
@@ -59,6 +63,9 @@ export const useWizard = create<WizardState>((set, get) => ({
     p.roadSide = keep.roadSide
     p.corner = keep.corner
     p.cornerSide = keep.cornerSide
+    p.location = keep.location
+    p.authority = keep.authority
+    if (p.authority) p.setbacks = setbacksFor(p.authority, p)
     set({ plot: p, plotMode: get().plotMode === 'irregular' ? 'irregular' : 'custom' })
   },
   setPolygon: (poly) => {

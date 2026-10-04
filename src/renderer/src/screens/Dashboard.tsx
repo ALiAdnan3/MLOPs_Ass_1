@@ -1,3 +1,7 @@
+import { qiblaVector } from '../core/location'
+import { AuthoritySelect } from '../ui/AuthoritySelect'
+import { setbacksFor } from '../core/bylaws'
+import { CitySelect } from '../ui/CitySelect'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import {
@@ -310,6 +314,37 @@ function SetupPanel(props: { project: Project | null; onDesigns: (d: DesignOptio
           <h3>House size</h3>
           <span className="sub">{formatPlotSize(w.plot.width, w.plot.depth, u)}</span>
         </header>
+        <div className="req-row" style={{ marginBottom: 8 }}>
+          <span>City</span>
+          <CitySelect
+            plot={w.plot}
+            onChange={(loc) => {
+              w.setPlot((p) => void (p.location = loc))
+              if (props.project)
+                commit(`Location: ${loc.city}`, (d) => {
+                  d.plot.location = loc
+                  d.settings.lighting.latitude = loc.lat
+                })
+            }}
+          />
+        </div>
+        <div className="req-row" style={{ marginBottom: 8 }}>
+          <span>Rules</span>
+          <AuthoritySelect
+            value={w.plot.authority}
+            onChange={(a) => {
+              w.setPlot((p) => {
+                p.authority = a
+                if (a) p.setbacks = setbacksFor(a, p)
+              })
+              if (props.project)
+                commit(a ? 'Building rules' : 'No authority rules', (d) => {
+                  d.plot.authority = a
+                  if (a) d.plot.setbacks = setbacksFor(a, d.plot)
+                })
+            }}
+          />
+        </div>
         <div className="size-grid">
           {SIZES.map((id) => {
             const pr = presetById(id)!
@@ -838,7 +873,7 @@ function CustomizePanel({ project, current }: { project: Project | null; current
           <select className="field" value={style} onChange={(e) => {
               setStyle(e.target.value)
               const lux = STYLES.find((s) => s.key === e.target.value)!.luxury
-              commit(`Furnish ${current.r.name} (${e.target.value})`, (d) => refurnishRoom(d.floors.find((f) => f.id === current.f.id)! as never, current.r.id, lux))
+              commit(`Furnish ${current.r.name} (${e.target.value})`, (d) => refurnishRoom(d.floors.find((f) => f.id === current.f.id)! as never, current.r.id, lux, qiblaVector(d.plot)))
             }}>
             {STYLES.map((s) => (
               <option key={s.key} value={s.key}>

@@ -1,3 +1,4 @@
+import { qiblaVector } from '../core/location'
 import { useEffect, useMemo, useState } from 'react'
 import { deepClone } from '../core/clone'
 import { Eye, RotateCw, Copy, Trash2, Plus, DoorOpen, AppWindow } from 'lucide-react'
@@ -147,7 +148,7 @@ function RoomDesign({ project, floor, room }: { project: Project; floor: Floor; 
     upFloor(floor.id, label, (f) => {
       const r = f.rooms.find((x) => x.id === room.id)!
       fn(r)
-      refurnishRoom(f, r.id, project.requirements.preferences.luxury)
+      refurnishRoom(f, r.id, project.requirements.preferences.luxury, qiblaVector(project.plot))
     })
   const bedroom = ['master_bedroom', 'bedroom', 'guest_bedroom', 'kids_room', 'servant'].includes(room.type)
   const living = ['tv_lounge', 'living', 'family', 'drawing', 'basement_lounge', 'home_theater', 'game_room'].includes(room.type)
@@ -512,7 +513,7 @@ function GarageSection({ project, floor, room }: { project: Project; floor: Floo
     upFloor(floor.id, label, (f) => {
       const r = f.rooms.find((x) => x.id === room.id)!
       r.garage = { ...g, ...patch }
-      refurnishRoom(f, r.id, project.requirements.preferences.luxury)
+      refurnishRoom(f, r.id, project.requirements.preferences.luxury, qiblaVector(project.plot))
     })
   const fits = Math.max(1, Math.floor(bbox(room.polygon).w / 2.6))
   return (

@@ -757,6 +757,19 @@ export function drawDimensionChains(dc: DrawContext, floor: Floor, t: PlanTheme,
   drawDimension(dc, { x: b.x, y: b.y }, { x: b.x, y: b.y + b.h }, 1.6, t, units)
 }
 
+/** Qibla needle inside the north-arrow circle (amendment A1): dashed, labelled, never mistaken for north. */
+const QIBLA = '#1f9d63'
+
+export function drawQiblaMark(dc: DrawContext, p: Vec2, size: number, angle: number, t: PlanTheme) {
+  // a backing disc keeps both needles readable over any floor or road texture
+  dc.circle(p, size * 1.25, { color: t.paper, opacity: 0.88 }, null)
+  const dir = rotate({ x: 0, y: -1 }, angle)
+  const tip = add(p, scale(dir, size * 0.95))
+  dc.line(p, tip, S(QIBLA, 1.2, { dash: [2.5, 1.6] }))
+  dc.circle(tip, size * 0.13, { color: QIBLA }, null)
+  dc.text(add(p, scale(dir, size * 1.65)), 'Qibla', { size: size * 0.36, color: QIBLA, align: 'center', baseline: 'middle', weight: 700, minPx: 8 })
+}
+
 export function drawNorthArrow(dc: DrawContext, p: Vec2, size: number, angle: number, t: PlanTheme) {
   const tip = add(p, rotate({ x: 0, y: -size }, angle))
   const l = add(p, rotate({ x: -size * 0.35, y: size * 0.4 }, angle))

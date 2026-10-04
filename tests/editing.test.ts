@@ -4,6 +4,7 @@ import { defaultRequirements, defaultSettings, newProject, plotFromPreset } from
 import { useProject, getProject } from '@/state/store'
 import { useUI } from '@/state/ui'
 import { parseEditOffline, applyEditPlan } from '@/ai/nlEditor'
+import { PANEL, layoutSolar } from '@/planner/solar'
 import { area, bbox } from '@/core/geometry/polygon'
 import { sortedFloors } from '@/core/model/house'
 import type { Project } from '@/core/model/types'
@@ -127,4 +128,18 @@ describe('feature wall targets the named room', () => {
     const r = await applyEditPlan(parseEditOffline('Make the feature wall in the kitchen stone', getProject(), fk.id), 'kw')
     expect(r.message).toMatch(new RegExp(kitchen.name))
   })
+
+  it('sizes, fills and removes rooftop solar from plain requests (A2)', async () => {
+    const say = async (t: string) => applyEditPlan(parseEditOffline(t, getProject(), useUI.getState().floorId), t)
+    const panels = () => getProject().floors.flatMap((f) => f.furniture.filter((x) => x.type === 'solar-panel'))
+    expect((await say('Add a 5 kW solar system')).ok).toBe(true)
+    expect(panels().length).toBe(Math.ceil(5000 / PANEL.watt))
+    await say('Fill the roof with solar panels')
+    const full = layoutSolar(getProject(), { moveSoft: true }).panels.length
+    expect(panels().length).toBe(full)
+    expect(full).toBeGreaterThan(9)
+    await say('Remove the solar panels')
+    expect(panels().length).toBe(0)
+  })
 })
+

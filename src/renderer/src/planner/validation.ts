@@ -7,6 +7,10 @@ import { effectiveKind, roomsBesideWall } from './walls'
 import { stairGeometry } from './stairs'
 import { sortedFloors, clearHeight } from '../core/model/house'
 import { catalogItem } from '../core/furniture/catalog'
+import { plotLocation, qiblaBearing, qiblaConflict, qiblaVector } from '../core/location'
+import { AUTHORITIES, checkBylaws } from '../core/bylaws'
+import { FT } from '../core/units/units'
+const ft = (v: number) => v * FT
 
 /** DESIGN VALIDATION (§56). Warnings are shown, never silently accepted. */
 
@@ -25,6 +29,8 @@ export interface Issue {
     | 'stair'
     | 'dimension'
     | 'furniture-outside'
+    | 'qibla'
+    | 'bylaw'
     | 'window'
     | 'garage'
     | 'basement'
@@ -102,6 +108,13 @@ export function accessGraph(h: Pick<HouseState, 'floors'>) {
 
 export function validateHouse(h: HouseState): Issue[] {
   const out: Issue[] = []
+  const loc = plotLocation(h.plot)
+  const qibla = qiblaVector(h.plot)
+  if (h.plot.authority) {
+    const a = AUTHORITIES[h.plot.authority]
+    for (const c of checkBylaws(h, h.plot.authority, { plinth: ft(1.5), parapet: h.exterior.parapetHeight }).filter((x) => !x.ok))
+      out.push(issue({ severity: 'warning', code: 'bylaw', message: `${c.label}: ${c.actual}, ${a.name} allows ${c.limit}`, why: `From the ${a.source}. Plans that break it are not approved.`, fix: c.key === 'storeys' || c.key.includes('height') ? 'Remove a floor or lower the floor heights.' : c.key === 'coverage' || c.key === 'first' || c.key === 'far' ? 'Make rooms smaller or remove one, or leave more open area.' : 'Move or shrink the rooms nearest that boundary, or regenerate the design with these rules.' }))
+  }
   const floors = sortedFloors(h.floors)
   const { adj, entries } = accessGraph(h)
 
@@ -225,6 +238,21 @@ export function validateHouse(h: HouseState): Issue[] {
         out.push(issue({ severity: 'warning', code: 'furniture-outside', message: `${name} is outside every room`, why: 'Furniture should sit inside a room.', fix: 'Drag it into a room.', floorId: f.id, ref }))
         continue
       }
+      if (fu.type === 'wc') {
+        const q = qiblaConflict(fu.rotation, qibla)
+        if (q)
+          out.push(
+            issue({
+              severity: 'warning',
+              code: 'qibla',
+              message: q === 'faces' ? `The WC in ${room.name} faces the Qibla` : `The WC in ${room.name} has its back to the Qibla`,
+              why: `Many families prefer a WC seated side-on to the Qibla (${Math.round(qiblaBearing(loc.lat, loc.lon))}° from north in ${loc.city ?? 'this location'}).`,
+              fix: 'Select the WC and press R to turn it 90°, or move it to a side wall. Set the city in Plot settings if the location is wrong.',
+              floorId: f.id,
+              ref
+            })
+          )
+      }
       const c = Math.cos(fu.rotation)
       const sn = Math.sin(fu.rotation)
       const hw = fu.width / 2 - 0.05
@@ -235,7 +263,9 @@ export function validateHouse(h: HouseState): Issue[] {
         [hw, hd],
         [-hw, hd]
       ].map(([x, y]) => ({ x: fu.position.x + x * c - y * sn, y: fu.position.y + x * sn + y * c }))
-      if (corners.some((p) => !pointInPolygon(p, expand(room.polygon, 0.02)))) out.push(issue({ severity: 'warning', code: 'furniture-outside', message: `${name} pokes through the walls of ${room.name}`, why: 'Part of it is outside the room.', fix: 'Move or rotate it, or make it smaller.', floorId: f.id, ref }))
+      // on open terraces the pieces between grid lines form one floor: an item may span them
+      const hosts = spec(room.type).outdoor ? rooms.filter((r) => spec(r.type).outdoor).map((r) => expand(r.polygon, 0.02)) : [expand(room.polygon, 0.02)]
+      if (corners.some((p) => !hosts.some((hp) => pointInPolygon(p, hp)))) out.push(issue({ severity: 'warning', code: 'furniture-outside', message: `${name} pokes through the walls of ${room.name}`, why: 'Part of it is outside the room.', fix: 'Move or rotate it, or make it smaller.', floorId: f.id, ref }))
     }
     // garage
     for (const g of rooms.filter((r) => r.type === 'garage')) {

@@ -390,17 +390,23 @@ export function buildItem(mb: MeshBuilder, glassMb: MeshBuilder, mats: MaterialM
       Cyl(0, 0, 0, W / 2, W / 2, Hh, 18)
       break
     case 'solar': {
+      // tilted towards local +z (the planner points that at the equator); low edge 0.3 m up
+      const low = 0.3
+      const high = Math.max(low + 0.2, Hh)
       mb.use(mats.get('lib:metal-aluminum'), surf)
-      B(0, 0.25, D / 3, 0.05, 0.5, 0.05)
-      B(0, 0.25, -D / 3, 0.05, 0.5, 0.05)
-      mb.use(mats.flat('#1b2a3d', 'house', { roughness: 0.15, metalness: 0.3 }), surf)
-      const tilt = 0.4
+      for (const x of [-W / 2 + 0.08, W / 2 - 0.08]) {
+        B(x, low / 2, D / 2 - 0.08, 0.04, low, 0.04)
+        B(x, high / 2, -D / 2 + 0.08, 0.04, high, 0.04)
+      }
+      mb.use(mats.flat('#16263a', 'house', { roughness: 0.12, metalness: 0.35 }), surf)
       const cx = f.position.x
       const cz = f.position.y
       const hx = W / 2
       const hz = D / 2
       const P = (x: number, z: number, y: number): [number, number, number] => [cx + x * cs - z * sn, E + y, cz + x * sn + z * cs]
-      mb.quad(P(-hx, -hz, 0.3 + tilt * 1.2), P(hx, -hz, 0.3 + tilt * 1.2), P(hx, hz, 0.3), P(-hx, hz, 0.3))
+      // both faces: seen from the roof above and from the street below
+      mb.quad(P(-hx, -hz, high), P(hx, -hz, high), P(hx, hz, low), P(-hx, hz, low))
+      mb.quad(P(-hx, hz, low), P(hx, hz, low), P(hx, -hz, high), P(-hx, -hz, high))
       break
     }
     case 'treadmill':

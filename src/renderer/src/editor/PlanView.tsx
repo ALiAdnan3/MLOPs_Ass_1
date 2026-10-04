@@ -4,7 +4,8 @@ import type { EntityRef, Floor, Project, RoomType, SiteAreaKind, SiteObjectKind,
 import { useProject, commit, getProject } from '../state/store'
 import { useUI, type Tool } from '../state/ui'
 import { CanvasContext, toScreen, toWorld, type ViewTransform } from '../render/draw/canvas'
-import { drawPlan, drawDimension, drawFurniture, drawNorthArrow } from '../render/draw/plan'
+import { drawPlan, drawDimension, drawFurniture, drawNorthArrow, drawQiblaMark } from '../render/draw/plan'
+import { qiblaAngle } from '../core/location'
 import { DARK_PLAN, LIGHT_PLAN, RENDERED_PLAN, type PlanTheme } from '../render/draw/theme'
 import { drawTexturedUnderlay } from '../render/texturedPlan'
 import { bbox, isAxisRect, pointInPolygon, rectPoly, area, type Rect } from '../core/geometry/polygon'
@@ -97,7 +98,8 @@ export function PlanView() {
     })
     // north arrow (bottom-right screen corner, clear of the panel toggle and floor stack)
     const na = northAngle(p.plot)
-    const nw = toWorld(view.current, { x: W - 44, y: H - 52 })
+    const nw = toWorld(view.current, { x: W - 48, y: H - 96 })
+    drawQiblaMark(dc, nw, 18 / view.current.scale, qiblaAngle(p.plot), theme)
     drawNorthArrow(dc, nw, 18 / view.current.scale, na, theme)
 
     // selection & hover

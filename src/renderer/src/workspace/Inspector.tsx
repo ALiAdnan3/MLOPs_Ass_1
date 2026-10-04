@@ -1,3 +1,5 @@
+import { qiblaVector } from '../core/location'
+import { BylawPanel } from './BylawPanel'
 import { useMemo, useState } from 'react'
 import { TriangleAlert, CircleAlert, Info, RotateCcw, Copy, GitCompare, Eye, EyeOff, CircleCheck } from 'lucide-react'
 import { useProject, commit } from '../state/store'
@@ -65,7 +67,12 @@ export function Inspector() {
             {tab === 'properties' && (mode === '3d' ? <View3DPanel /> : null)}
             {tab === 'properties' && <Properties />}
             {tab === 'layers' && <Layers />}
-            {tab === 'validation' && <Issues issues={issues} />}
+            {tab === 'validation' && (
+              <>
+                <BylawPanel />
+                <Issues issues={issues.filter((i) => i.code !== 'bylaw')} />
+              </>
+            )}
             {tab === 'areas' && <Areas />}
             {tab === 'versions' && <Versions />}
             {tab === 'estimate' && <EstimatePanel />}
@@ -304,7 +311,7 @@ function RoomProps({ project, floor, room }: { project: Project; floor: Floor; r
               label="Furniture"
               onChange={(v) =>
                 upFloor(floor.id, v ? `Furnish ${room.name}` : `Clear ${room.name}`, (f) => {
-                  if (v) refurnishRoom(f, room.id, project.requirements.preferences.luxury)
+                  if (v) refurnishRoom(f, room.id, project.requirements.preferences.luxury, qiblaVector(project.plot))
                   else f.furniture = f.furniture.filter((x) => !pointInPolygon(x.position, room.polygon))
                 })
               }

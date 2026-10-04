@@ -61,10 +61,13 @@ export function planEnvelope(plot: Plot, req: Requirements, strategy: DesignStra
     h: plotRect.h - frontYard - backReserve
   }
   if (maxRect.h < 6) {
-    const need = 6 - maxRect.h
-    maxRect.y -= need
-    maxRect.h += need
-    warnings.push('Back yard reduced to keep a usable house depth')
+    // under an authority's rules only the optional garden depth may go, never the legal rear space
+    const need = Math.min(6 - maxRect.h, plot.authority ? Math.max(0, backReserve - plot.setbacks.rear) : Infinity)
+    if (need > 0) {
+      maxRect.y -= need
+      maxRect.h += need
+      warnings.push('Back yard reduced to keep a usable house depth')
+    }
   }
   return { plotRect, maxRect, garageW, garageD, cars, frontYard, backReserve: maxRect.y - plotRect.y, warnings, ventSide }
 }
