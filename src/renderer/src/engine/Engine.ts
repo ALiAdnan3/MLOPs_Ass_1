@@ -98,6 +98,11 @@ export class Engine {
   private envTex: THREE.Texture | null = null
   private skyEnv: { scene: THREE.Scene; sky: GradientSky; rt: THREE.WebGLRenderTarget | null; key: string } | null = null
   private skyState = { warm: 0, night: 0 }
+
+  /** Sun direction and sky tint as last applied (the photoreal renderer rebuilds the sky from them). */
+  skyParams() {
+    return { sunDir: (this.sky.material.uniforms.sunDir.value as THREE.Vector3).clone(), warm: this.skyState.warm, night: this.skyState.night }
+  }
   private flight: { from: THREE.Vector3; to: THREE.Vector3; tFrom: THREE.Vector3; tTo: THREE.Vector3; t: number; dur: number } | null = null
   private lastLook: string | null = null
   private explodeCurrent = 0

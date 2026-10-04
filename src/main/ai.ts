@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { betaJSONSchemaOutputFormat } from '@anthropic-ai/sdk/helpers/beta/json-schema'
 import type { AiRequest, AiResponse } from '../shared/api'
-import { EDIT_SYSTEM, REQUIREMENTS_SYSTEM, editSchema, requirementsSchema } from '../shared/ai-schemas'
+import { EDIT_SYSTEM, READ_PLAN_SYSTEM, REQUIREMENTS_SYSTEM, editSchema, readPlanSchema, requirementsSchema } from '../shared/ai-schemas'
 
 /**
  * Optional Claude integration (runs in the main process so the API key never reaches the page).
@@ -15,8 +15,20 @@ export async function runAi(apiKey: string | null, req: AiRequest): Promise<AiRe
   if (!apiKey && !process.env.ANTHROPIC_API_KEY) return { ok: false, error: 'No Claude API key is set. Add one in Settings, or keep using the built-in offline assistant.' }
   const client = apiKey ? new Anthropic({ apiKey, timeout: 90_000, maxRetries: 2 }) : new Anthropic({ timeout: 90_000, maxRetries: 2 })
   const isReq = req.task === 'requirements'
-  const system = isReq ? REQUIREMENTS_SYSTEM : EDIT_SYSTEM
-  const content = isReq ? req.text : `Current house model:\n${req.context ?? '{}'}\n\nInstruction: ${req.text}`
+  const isRead = req.task === 'readPlan'
+  if (isRead && !req.image) return { ok: false, error: 'No image was sent to read.' }
+  const system = isRead ? READ_PLAN_SYSTEM : isReq ? REQUIREMENTS_SYSTEM : EDIT_SYSTEM
+  const schema = isRead ? readPlanSchema : isReq ? requirementsSchema : editSchema
+  // a drawing goes as an image block followed by the instruction (amendment A5)
+  const content: Anthropic.Beta.Messages.BetaContentBlockParam[] | string =
+    isRead && req.image
+      ? [
+          { type: 'image', source: { type: 'base64', media_type: req.image.mediaType, data: req.image.data } },
+          { type: 'text', text: req.text || 'Read the room names and dimensions on this floor plan.' }
+        ]
+      : isReq
+        ? req.text
+        : `Current house model:\n${req.context ?? '{}'}\n\nInstruction: ${req.text}`
   try {
     const response = await client.beta.messages.parse({
       model: MODEL,
@@ -25,8 +37,8 @@ export async function runAi(apiKey: string | null, req: AiRequest): Promise<AiRe
       fallbacks: 'default',
       system,
       output_config: {
-        effort: 'low',
-        format: betaJSONSchemaOutputFormat(isReq ? requirementsSchema : editSchema)
+        effort: isRead ? 'medium' : 'low',
+        format: betaJSONSchemaOutputFormat(schema)
       },
       messages: [{ role: 'user', content }]
     })

@@ -2677,3 +2677,51 @@ table.compare .better {
   border-radius: 8px;
   box-shadow: 0 6px 18px rgba(47, 123, 255, 0.3);
 }
+
+/* photoreal render (amendment A6) */
+.photoreal-stage {
+  width: 100%;
+  max-height: 60vh;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.photoreal-stage:has(img) {
+  aspect-ratio: auto !important;
+  background: transparent;
+  border: 0;
+}
+.photoreal-stage img {
+  max-width: 100%;
+  max-height: 60vh;
+  width: auto;
+  height: auto;
+  display: block;
+  border-radius: var(--r-lg);
+}
+.photoreal-progress {
+  width: 70%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.photoreal-progress .bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--raised-2);
+  overflow: hidden;
+}
+.photoreal-progress .bar span {
+  display: block;
+  height: 100%;
+  background: var(--tape);
+  transition: width 0.3s;
+}

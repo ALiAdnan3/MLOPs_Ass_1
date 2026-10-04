@@ -10,7 +10,9 @@ Everything comes from one structured house model. The 2D plan, 3D view, elevatio
 
 ![Design dashboard](docs/screenshots/dashboard.png)
 
-The home screen is a design dashboard: set the plot and requirements on the left, generate five designs, and see the chosen house live in 3D with its rendered floor plans and a 3D cut-away. Try finishes on any room with a preview, adjust its size, play a drone tour, or jump into any tool. The workspace puts the 2D plan and the 3D view side by side, with tools, layers, floors, materials, recent projects and the assistant one click away.
+The home screen is a design dashboard: set the plot and requirements on the left, generate five designs, and see the chosen house live in 3D with its rendered floor plans and a 3D cut-away. Try finishes on any room with a preview, adjust its size, play a drone tour, or jump into any tool. Additions to the original spec are listed in [docs/AMENDMENTS.md](docs/AMENDMENTS.md).
+
+The workspace puts the 2D plan and the 3D view side by side, with tools, layers, floors, materials, recent projects and the assistant one click away.
 
 ![Workspace: plan and 3D side by side](docs/screenshots/workspace.png)
 
@@ -28,6 +30,8 @@ The home screen is a design dashboard: set the plot and requirements on the left
 | Assistant | "Make the master bedroom 2 feet wider", "Add a bathroom beside bedroom 3", "Add a swimming pool", "Change the exterior to stone". Works offline; optional Claude integration |
 | Output | A3 drawing sets (plans, dimension, furniture, electrical, lighting, site, roof, elevations, sections) as PDF/SVG/PNG/JPG/DXF; GLB/glTF/OBJ; renders; walkthrough video; presentation PDF; `.homeforge` project file |
 | Costs | Construction estimate and material quantities with Pakistan, UAE, UK, USA or custom rates |
+| Pakistan-ready | City and Qibla direction (WCs seated side-on to it), LDA and DHA Lahore building rules with designs generated to comply, rooftop solar planner with payback, grey-structure and finishing costs |
+| Photoreal | Path-traced stills of any 3D view up to 4K, in materials or clay; needs the OpenGL graphics backend on Windows (Settings → Graphics) |
 
 | | |
 |---|---|

@@ -139,6 +139,11 @@ function registerIpc() {
   ipcMain.handle('hf:autosave-read', (_e, id: string) => store.autosaveRead(id))
   ipcMain.handle('hf:autosave-remove', (_e, id: string) => store.autosaveRemove(id))
   ipcMain.handle('hf:settings-get', () => store.settingsGet())
+  ipcMain.handle('hf:relaunch', () => {
+    // the normal close path autosaves first; the new instance starts once this one has gone
+    app.relaunch()
+    win?.close()
+  })
   ipcMain.handle('hf:settings-set', (_e, patch) => store.settingsSet(patch))
   ipcMain.handle('hf:set-api-key', (_e, key: string | null) => store.setApiKey(key))
   ipcMain.handle('hf:ai', async (_e, req) => runAi(await store.getApiKey(), req))
@@ -160,6 +165,14 @@ function registerIpc() {
     pendingOpen = null
     return p
   })
+}
+
+// graphics backend (amendment A6): Direct3D by default; OpenGL or Vulkan when the user chose it,
+// which the photoreal path tracer needs on Windows
+{
+  const gb = store.graphicsBackendSync()
+  if (gb === 'opengl') app.commandLine.appendSwitch('use-angle', 'gl')
+  else if (gb === 'vulkan') app.commandLine.appendSwitch('use-angle', 'vulkan')
 }
 
 const gotLock = app.requestSingleInstanceLock()

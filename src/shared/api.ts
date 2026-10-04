@@ -27,17 +27,21 @@ export interface AppSettings {
   uiMode: 'beginner' | 'advanced'
   aiProvider: 'offline' | 'claude'
   hasApiKey: boolean
+  /** ANGLE backend on Windows (amendment A6): 'auto' keeps Direct3D; the path tracer needs OpenGL or Vulkan. Applied at start-up. */
+  graphicsBackend?: 'auto' | 'opengl' | 'vulkan'
   autosaveSeconds: number
   firstRunDone: boolean
 }
 
-export type AiTask = 'requirements' | 'edit' | 'exterior' | 'chat'
+export type AiTask = 'requirements' | 'edit' | 'exterior' | 'chat' | 'readPlan'
 
 export interface AiRequest {
   task: AiTask
   text: string
   /** JSON summary of the current house (for edits / chat). */
   context?: string
+  /** A sketch or plan photo to read (readPlan), base64 without the data: prefix. */
+  image?: { mediaType: 'image/jpeg' | 'image/png'; data: string }
 }
 
 export interface AiResponse {
@@ -61,6 +65,8 @@ export interface HomeForgeAPI {
   openProjectDialog(): Promise<FileResult | null>
   openFileDialog(filters: { name: string; extensions: string[] }[], multi?: boolean): Promise<FileResult[]>
   saveDialog(defaultName: string, filters: { name: string; extensions: string[] }[], data: ArrayBuffer | string): Promise<string | null>
+  /** Restart the app (after autosave), e.g. to apply a new graphics backend. */
+  relaunch(): Promise<void>
   writeFile(path: string, data: ArrayBuffer | string): Promise<void>
   readFile(path: string): Promise<FileResult>
   chooseFolder(): Promise<string | null>

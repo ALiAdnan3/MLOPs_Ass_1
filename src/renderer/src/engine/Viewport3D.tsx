@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bookmark, Camera, Sun, Sunrise, Sunset, CloudSun, MoonStar } from 'lucide-react'
+import { Bookmark, Camera, Sun, Sunrise, Sunset, CloudSun, MoonStar, Aperture } from 'lucide-react'
 import { getEngine } from './Engine'
 import { useProject, getProject, commit } from '../state/store'
 import { useUI, type CameraPreset, type ViewMode3D } from '../state/ui'
@@ -237,6 +237,7 @@ function ViewBar() {
             setMenu({ x: r.left, y: r.bottom + 6 })
           }} />
         <IconButton icon={<Bookmark />} label="Save this view as a bookmark" onClick={() => camItems[camItems.length - 1].onClick?.()} />
+        <IconButton icon={<Aperture />} label="Photoreal render" onClick={() => useUI.getState().openDialog('photoreal')} />
       </div>
       {menu && <Menu items={camItems} x={menu.x} y={menu.y} onClose={() => setMenu(null)} />}
     </>

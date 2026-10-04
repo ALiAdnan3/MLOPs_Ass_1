@@ -1,6 +1,6 @@
 import { app, safeStorage } from 'electron'
 import { promises as fs } from 'node:fs'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AppSettings, AutosaveEntry, RecentProject } from '../shared/api'
 
@@ -93,6 +93,15 @@ const pub = (s: Stored): AppSettings => {
   const { apiKeyEnc, ...rest } = s
   return { ...rest, hasApiKey: !!apiKeyEnc || !!process.env.ANTHROPIC_API_KEY }
 }
+/** Read before the app is ready: command-line switches must be set before start-up. */
+export function graphicsBackendSync(): AppSettings['graphicsBackend'] {
+  try {
+    return (JSON.parse(readFileSync(join(dir(), 'settings.json'), 'utf8')) as Partial<Stored>).graphicsBackend ?? 'auto'
+  } catch {
+    return 'auto'
+  }
+}
+
 export async function settingsGet() {
   return pub(await stored())
 }

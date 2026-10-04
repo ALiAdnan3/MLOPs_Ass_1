@@ -129,3 +129,31 @@ describe('sketch: add a room to an existing house (§72)', () => {
     expect(floor.furniture.length).toBeGreaterThan(0)
   })
 })
+
+describe('A5 labels read from a drawing', () => {
+  it('names rooms and corrects the scale from what Claude reads', async () => {
+    const { vectorizeStrokes, recognize } = await import('@/ai/sketchRecognizer')
+    const { textsFromReading } = await import('@/ai/readPlan')
+    // two rooms drawn 8 x 6 units side by side, but the writing says the left one is 16' x 12'
+    const box = (x: number, y: number, w: number, h: number) => ({ pts: [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }, { x, y }] })
+    const { segs } = vectorizeStrokes([box(0, 0, 8, 6), box(8, 0, 6, 6)])
+    const reading = {
+      rooms: [
+        { name: 'Master bedroom', x: 0.25, y: 0.4 },
+        { name: 'Bath', x: 0.8, y: 0.5 }
+      ],
+      dimensions: [{ text: "16' x 12'", widthFt: 16, lengthFt: 12, x: 0.25, y: 0.65 }],
+      overallWidthFt: null,
+      overallDepthFt: null
+    }
+    // the snapshot covers 0..14 by 0..6 plan units
+    const texts = textsFromReading(reading, (fx, fy) => ({ x: fx * 14, y: fy * 6 }))
+    const plan = recognize(segs, { texts })
+    const master = plan.rooms.find((r) => r.type === 'master_bedroom')
+    expect(master?.name).toBe('Master Bedroom')
+    expect(plan.rooms.some((r) => r.type === 'bathroom')).toBe(true)
+    // 16 ft = 4.877 m drawn as 8 units
+    expect(plan.scale).toBeCloseTo(4.877 / 8, 2)
+  })
+})
+

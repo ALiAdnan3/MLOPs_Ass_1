@@ -78,6 +78,9 @@ const browser: HomeForgeAPI = {
     const files = await pickFiles(accept, multi)
     return Promise.all(files.map(async (f): Promise<FileResult> => ({ path: f.name, name: f.name, data: await f.arrayBuffer() })))
   },
+  async relaunch() {
+    location.reload()
+  },
   async saveDialog(name, _filters, data) {
     download(name, data)
     return name

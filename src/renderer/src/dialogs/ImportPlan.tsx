@@ -4,7 +4,9 @@ import { Modal, LengthField } from '../ui/primitives'
 import { useProject, commit } from '../state/store'
 import { useUI } from '../state/ui'
 import { pendingImport } from './importFiles'
-import { segmentsFromImage, recognize, applyRecognizedPlan, type RecognizedPlan } from '../ai/sketchRecognizer'
+import { segmentsFromImage, recognize, applyRecognizedPlan, type RecognizedPlan, type TextMark } from '../ai/sketchRecognizer'
+import { claudeVisionAvailable, readPlanWithClaude, textsFromReading } from '../ai/readPlan'
+import { FT } from '../core/units/units'
 import { spec } from '../core/constraints/rooms'
 import { area, bbox } from '../core/geometry/polygon'
 import { formatAreaFor } from '../core/units/units'
@@ -19,6 +21,7 @@ import type { Floor, Project, RoomType } from '../core/model/types'
  */
 
 const STAGES = ['Detect walls', 'Detect rooms', 'Detect doors', 'Detect windows', 'Set the scale', 'Create editable plan']
+const STAGES_CLAUDE = ['Read names and sizes (Claude)', ...STAGES]
 const TYPES: RoomType[] = ['master_bedroom', 'bedroom', 'bathroom', 'kitchen', 'tv_lounge', 'drawing', 'dining', 'store', 'stair', 'corridor', 'foyer', 'garage', 'study', 'laundry', 'terrace']
 
 export function ImportPlanDialog({ onClose }: { onClose: () => void }) {
@@ -33,6 +36,14 @@ export function ImportPlanDialog({ onClose }: { onClose: () => void }) {
   const [widthM, setWidthM] = useState(bw)
   const [error, setError] = useState<string | null>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
+  // amendment A5: optional Claude reading of the writing on the drawing
+  const [visionOk, setVisionOk] = useState(false)
+  const [useVision, setUseVision] = useState(true)
+  const [visionNote, setVisionNote] = useState<string | null>(null)
+  useEffect(() => void claudeVisionAvailable().then(setVisionOk), [])
+  const vision = visionOk && useVision
+  const stages = vision ? STAGES_CLAUDE : STAGES
+  const off = vision ? 1 : 0
   const input = useRef<HTMLInputElement>(null)
 
   const load = async (f: File) => {
@@ -68,7 +79,23 @@ export function ImportPlanDialog({ onClose }: { onClose: () => void }) {
       setStage(i)
       await new Promise((r) => setTimeout(r, 140))
     }
-    await step(0)
+    setVisionNote(null)
+    let reading: Awaited<ReturnType<typeof readPlanWithClaude>> | null = null
+    let width = widthM
+    if (vision) {
+      await step(0)
+      reading = await readPlanWithClaude(img.url)
+      if (!reading.ok) setVisionNote(`${reading.error} Continuing without it.`)
+      else {
+        const r = reading.result
+        if (r.overallWidthFt && r.overallWidthFt > 8 && r.overallWidthFt < 500) {
+          width = r.overallWidthFt * FT
+          setWidthM(width)
+        }
+        setVisionNote(`Claude read ${r.rooms.length} room name${r.rooms.length === 1 ? '' : 's'} and ${r.dimensions.length} size${r.dimensions.length === 1 ? '' : 's'}${r.overallWidthFt ? `, overall width ${r.overallWidthFt} ft` : ''}.`)
+      }
+    }
+    await step(off)
     const im = segmentsFromImage(img.data)
     if (im.segs.length < 4) {
       setError('Too few wall lines were found. Use a sharper, straight-on scan with dark wall lines on a light background.')
@@ -78,17 +105,18 @@ export function ImportPlanDialog({ onClose }: { onClose: () => void }) {
     const all = im.segs.flatMap((s) => [s.a, s.b])
     const b = bbox(all)
     setPxBox(b)
-    const mpp = widthM / Math.max(1, b.w)
+    const mpp = width / Math.max(1, b.w)
     const T = (p: { x: number; y: number }) => ({ x: (p.x - b.x) * mpp, y: (p.y - b.y) * mpp })
+    const texts: TextMark[] = reading?.ok ? textsFromReading(reading.result, (fx, fy) => T({ x: fx * img.w, y: fy * img.h })) : []
     const segs = im.segs.map((s) => ({ a: T(s.a), b: T(s.b) }))
     const thin = im.thin.map((s) => ({ a: T(s.a), b: T(s.b) })).filter((s) => Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y) > 0.5)
-    await step(1)
-    const res = recognize(segs, { tol: Math.max(0.18, im.wallPx * mpp * 1.6), windowMarks: thin })
-    await step(2)
-    await step(3)
-    await step(4)
+    await step(1 + off)
+    const res = recognize(segs, { tol: Math.max(0.18, im.wallPx * mpp * 1.6), windowMarks: thin, texts })
+    await step(2 + off)
+    await step(3 + off)
+    await step(4 + off)
     setPlan(res)
-    setStage(5)
+    setStage(5 + off)
     if (!res.rooms.length) setError('Walls were found, but they do not close into rooms. The plan may be too faint or cropped; try a cleaner scan.')
   }
 
@@ -101,7 +129,8 @@ export function ImportPlanDialog({ onClose }: { onClose: () => void }) {
     const g = c.getContext('2d')!
     g.clearRect(0, 0, c.width, c.height)
     if (!plan || !pxBox) return
-    const mpp = widthM / Math.max(1, pxBox.w)
+    // written dimensions may have rescaled the plan: map back through that scale too
+    const mpp = (widthM / Math.max(1, pxBox.w)) * plan.scale
     const P = (p: { x: number; y: number }) => ({ x: p.x / mpp + pxBox.x, y: p.y / mpp + pxBox.y })
     for (const r of plan.rooms) {
       g.beginPath()
@@ -163,7 +192,7 @@ export function ImportPlanDialog({ onClose }: { onClose: () => void }) {
       footer={
         <>
           <span className="faint grow" style={{ fontSize: 12 }}>
-            Dimension text on the image is not read; set the overall width so the plan comes in at the right size.
+            {vision ? 'Claude reads the room names and sizes written on the image; check them before creating the plan.' : 'Set the overall width so the plan comes in at the right size. With a Claude key, the names and sizes written on the image can be read too.'}
           </span>
           <button className="btn" onClick={onClose}>
             Cancel
@@ -208,13 +237,20 @@ export function ImportPlanDialog({ onClose }: { onClose: () => void }) {
         </div>
         <div className="col" style={{ gap: 12 }}>
           <div className="pipeline" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-            {STAGES.map((s, i) => (
-              <span key={s} className={i < stage || (i === stage && stage === 5) ? 'done' : i === stage ? 'active' : ''}>
-                {i < stage || (plan && i <= 4) ? '✓ ' : ''}
+            {stages.map((s, i) => (
+              <span key={s} className={i < stage || (i === stage && stage === stages.length - 1) ? 'done' : i === stage ? 'active' : ''}>
+                {i < stage || (plan && i <= stages.length - 2) ? '✓ ' : ''}
                 {s}
               </span>
             ))}
           </div>
+          {visionOk && (
+            <label className="side-check" style={{ fontSize: 12 }}>
+              <input type="checkbox" checked={useVision} onChange={(e) => setUseVision(e.target.checked)} />
+              Read room names and sizes with Claude (sends this image to Claude)
+            </label>
+          )}
+          {visionNote && <p className="faint" style={{ fontSize: 12, margin: 0 }}>{visionNote}</p>}
           <div className="prop">
             <label>House width</label>
             <LengthField value={widthM} units={u} min={3} max={200} onCommit={(v) => setWidthM(v)} tip="Overall width of the drawn house, outside to outside" />

@@ -1,5 +1,6 @@
-import { useRef } from 'react'
-import { PenLine, Eraser, Type, Hand, Undo2, Trash2, ScanLine, ImagePlus, Box, Map as MapIcon } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { claudeVisionAvailable, readPlanWithClaude, sketchSnapshot, textsFromReading } from '../ai/readPlan'
+import { PenLine, Eraser, Type, Hand, Undo2, Trash2, ScanLine, ImagePlus, Box, Map as MapIcon, Wand2 } from 'lucide-react'
 import { useSketch, runRecognition, type SketchTool } from './sketchState'
 import { useProject, commit, getProject } from '../state/store'
 import { useUI } from '../state/ui'
@@ -17,6 +18,25 @@ import { IconButton, Seg } from '../ui/primitives'
 const TYPES: RoomType[] = ['master_bedroom', 'bedroom', 'guest_bedroom', 'bathroom', 'kitchen', 'tv_lounge', 'drawing', 'dining', 'family', 'study', 'store', 'laundry', 'prayer', 'stair', 'corridor', 'foyer', 'garage', 'terrace', 'courtyard']
 
 export function SketchPanel() {
+  // amendment A5: hand-written room names and sizes read by Claude become labels on the sketch
+  const [visionOk, setVisionOk] = useState(false)
+  const [reading, setReading] = useState(false)
+  useEffect(() => void claudeVisionAvailable().then(setVisionOk), [])
+  const readHandwriting = async () => {
+    const cur = useSketch.getState()
+    setReading(true)
+    try {
+      const snap = await sketchSnapshot(cur.strokes, cur.image)
+      if (!snap) return
+      const r = await readPlanWithClaude(snap.dataUrl)
+      if (!r.ok) return useUI.getState().showError({ what: 'The handwriting could not be read.', why: r.error, fix: 'Type the labels with the Label tool instead, or check the Claude key in Settings.' })
+      const marks = textsFromReading(r.result, snap.toPlan)
+      for (const t of marks) useSketch.getState().addText(t)
+      useUI.getState().toast({ kind: marks.length ? 'success' : 'info', title: marks.length ? `Read ${marks.length} label${marks.length === 1 ? '' : 's'}` : 'No writing found', body: marks.length ? marks.slice(0, 5).map((t) => t.text).join(', ') : 'Write room names or sizes inside the rooms, then try again.' })
+    } finally {
+      setReading(false)
+    }
+  }
   const st = useSketch()
   const units = useProject((s) => s.project.settings.units)
   const floors = useProject((s) => s.project.floors)
@@ -99,6 +119,11 @@ export function SketchPanel() {
           }} />
       </div>
       <div className="section">
+        {visionOk && (
+          <button className="btn" style={{ width: '100%', marginBottom: 6 }} disabled={reading || (!st.strokes.length && !st.image)} data-tip="Sends a picture of this sketch to Claude to read the words and sizes you wrote" onClick={() => void readHandwriting()}>
+            <Wand2 size={14} /> {reading ? 'Reading your writing…' : 'Read handwriting with Claude'}
+          </button>
+        )}
         <button className="btn primary" style={{ width: '100%' }} disabled={!st.strokes.length && !st.image} onClick={() => {
             const res = runRecognition(floor)
             if (!res.rooms.length) useUI.getState().showError({ what: 'No rooms were recognized.', why: 'The outlines do not form closed shapes, or the lines are too far apart to join.', fix: 'Make sure each room outline meets its neighbours at the corners (small overshoots are fine), then try again.' })

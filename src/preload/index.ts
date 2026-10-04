@@ -30,6 +30,7 @@ const api: HomeForgeAPI = {
     setApiKey: (k) => ipcRenderer.invoke('hf:set-api-key', k)
   },
   ai: (req) => ipcRenderer.invoke('hf:ai', req),
+  relaunch: () => ipcRenderer.invoke('hf:relaunch'),
   setTitleBarTheme: (t) => ipcRenderer.send('hf:title-theme', t),
   log: (level, message) => ipcRenderer.send('hf:log', level, message),
   onOpenFile: (cb) => {

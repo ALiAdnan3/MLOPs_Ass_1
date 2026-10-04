@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { PanelRightClose, PanelRightOpen, ZoomIn, ZoomOut, Scan, Grid3x3, Home, Footprints, Box, Maximize2, Columns2, Square, Plane } from 'lucide-react'
+import { PanelRightClose, PanelRightOpen, ZoomIn, ZoomOut, Scan, Grid3x3, Home, Footprints, Box, Maximize2, Columns2, Square, Plane, Aperture } from 'lucide-react'
 import { useUI, type ViewMode3D } from '../state/ui'
 import { useProject, commit } from '../state/store'
 import { TitleBar } from './TitleBar'
@@ -176,6 +176,7 @@ function View3DHeader() {
       <IconButton icon={<Plane />} label="Drone flythrough" onClick={() => setMode('drone')} />
       <IconButton icon={<Footprints />} label="Walk inside" shortcut="3" onClick={() => setMode('walk')} />
       <IconButton icon={<Box />} label="Open in full 3D" shortcut="2" onClick={() => setMode('3d')} />
+      <IconButton icon={<Aperture />} label="Photoreal render" onClick={() => useUI.getState().openDialog('photoreal')} />
       <IconButton icon={<Maximize2 />} label="Full screen 3D" onClick={() => {
           setMode('3d')
           useUI.getState().set({ inspectorOpen: false, dockOpen: false })

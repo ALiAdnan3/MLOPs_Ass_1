@@ -13,6 +13,7 @@ const ExportDialog = lazy(() => import('./ExportDialog').then((m) => ({ default:
 const ImportPlanDialog = lazy(() => import('./ImportPlan').then((m) => ({ default: m.ImportPlanDialog })))
 const AlternativesDialog = lazy(() => import('./Alternatives').then((m) => ({ default: m.AlternativesDialog })))
 const ConceptBoard = lazy(() => import('./ConceptBoard').then((m) => ({ default: m.ConceptBoard })))
+const PhotorealDialog = lazy(() => import('./PhotorealDialog').then((m) => ({ default: m.PhotorealDialog })))
 
 export function DialogHost() {
   const dialog = useUI((s) => s.dialog)
@@ -28,6 +29,7 @@ export function DialogHost() {
       {dialog === 'import-plan' && <ImportPlanDialog onClose={close} />}
       {dialog === 'alternatives' && <AlternativesDialog onClose={close} />}
       {dialog === 'concepts' && <ConceptBoard onClose={close} />}
+      {dialog === 'photoreal' && <PhotorealDialog onClose={close} />}
     </Suspense>
   )
 }
@@ -122,6 +124,17 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
                     configureAutosave(Number(v))
                   }} options={['10', '20', '60', '120'].map((x) => ({ value: x, label: `${x}s` }))} />
               </div>
+              {isDesktop && (
+                <div className="prop">
+                  <label>Graphics</label>
+                  <div className="col" style={{ gap: 4, alignItems: 'stretch' }}>
+                    <Seg value={app.graphicsBackend ?? 'auto'} onChange={async (v) => setApp(await platform.settings.set({ graphicsBackend: v }))} options={[{ value: 'auto', label: 'Automatic', tip: 'Direct3D on Windows' }, { value: 'opengl', label: 'OpenGL', tip: 'Needed for photoreal renders on Windows' }, { value: 'vulkan', label: 'Vulkan' }]} />
+                    <button className="link-btn" style={{ alignSelf: 'flex-start', marginTop: 0 }} onClick={() => void platform.relaunch()}>
+                      Restart to apply
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="section-title" style={{ marginTop: 18 }}>
                 AI assistant
               </div>

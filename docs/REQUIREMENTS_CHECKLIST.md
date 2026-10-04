@@ -45,8 +45,8 @@ Verification: `npm test` (37 unit tests), `e2e/tour.py`, `e2e/wizard.py` and `e2
 ## Sketch & recognition
 
 - [x] §19 Sketch → clean plan → Generate 3D; sketch can redraw a floor or add rooms to it (snaps to existing walls)
-- [~] §20 Mouse, pen (pressure), touch, imported photo; walls, rooms, doors (gaps and arcs), windows (double lines, "W"), typed labels and "12x14" dimensions; asks "Did you mean this to be a bedroom?". Handwritten label text is not read; type labels with the Label tool
-- [~] §21 Plan image → walls → rooms → doors → windows → scale → editable plan → 3D. Dimension text in the image is not read; the user enters the overall width
+- [~] §20 Mouse, pen (pressure), touch, imported photo; walls, rooms, doors (gaps and arcs), windows (double lines, "W"), typed labels and "12x14" dimensions; asks "Did you mean this to be a bedroom?". Hand-written labels are read by Claude when a key is set (A5); offline, type labels with the Label tool
+- [~] §21 Plan image → walls → rooms → doors → windows → scale → editable plan → 3D. Dimension text is read by Claude when a key is set (A5); offline, the user enters the overall width
 
 ## 3D
 
@@ -89,7 +89,7 @@ Verification: `npm test` (37 unit tests), `e2e/tour.py`, `e2e/wizard.py` and `e2
 - [x] §23 All spec sentences become model edits (unit-tested)
 - [x] §44 Assistant reports changes, moved rooms, new sizes and area changes; undo; regenerate
 - [x] §53 The structured model is the source of truth
-- [~] §54 Concept images are kept on a separate board and labelled; they are captured renders or imported photos (no image-generation model is bundled)
+- [x] §54 Concept images are kept on a separate board and labelled: captured renders, path-traced photoreal renders (A6) or imported photos
 
 ## Project, history, UX
 
@@ -115,5 +115,7 @@ Verification: `npm test` (37 unit tests), `e2e/tour.py`, `e2e/wizard.py` and `e2
 - [x] A2 Rooftop solar planner: equator-facing unshaded rows, kWp, units, saving, payback; assistant commands
 - [x] A3 Estimate split into grey structure and finishing, each with its rate per ft²
 - [x] A4 LDA (2019, amended 2020) and DHA Lahore (2026) residential rules: setbacks applied, designs generated to comply, checks with sources, redesign within the rules
+- [x] A5 Optional Claude vision reads hand-written room names and sizes on sketches and plan photos (offline path unchanged)
+- [x] A6 Photoreal path-traced render (sizes to 4K, clay style, save or add to the concept board); needs the OpenGL graphics backend on Windows, switchable in Settings or from the dialog
 - [x] A7 Every generated bathroom is usable (WC fits; never under 3′9″ wide or 1.9 m²), with fewer, shared bathrooms when a plot is too tight
 

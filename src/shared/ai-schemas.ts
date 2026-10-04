@@ -183,3 +183,47 @@ Rules:
 - set_solar: rooftop solar panels; amount = system size in kW (0 removes them), or value "fill" to cover the open roof.
 - improve_layout fixes validation problems; answer = the user only asked a question (put the answer in reply).
 Keep reply to one or two sentences describing the change.`
+
+/** Amendment A5: reading hand-written labels and dimensions on a sketch or plan photo. */
+export const READ_PLAN_SYSTEM = `You read floor-plan drawings for HomeForge AI: hand sketches, scans and photos of house plans, mostly from Pakistan.
+Report every piece of writing that names a room or gives a size, with where it sits on the image.
+Positions are fractions of the image: x from 0 (left edge) to 1 (right edge), y from 0 (top) to 1 (bottom), at the centre of the text.
+Rooms: give the text as written but expanded to plain English if abbreviated (MBR = master bedroom, D/R = drawing room, T.V. lounge, K = kitchen, W.C. or Toilet = bathroom, Lobby, Store, Porch = garage).
+Dimensions: sizes written inside or beside a room, e.g. 12'x14', 12'-6" x 14', 4.2 x 5 m. Put the two numbers in feet in widthFt and lengthFt (convert metres; inches become fractions of a foot).
+overallWidthFt / overallDepthFt: the plot or building's overall width and depth if a dimension line along the whole drawing states them; otherwise null.
+Never guess text you cannot read; leave it out.`
+
+export const readPlanSchema = {
+  type: 'object',
+  properties: {
+    rooms: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { name: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' } },
+        required: ['name', 'x', 'y'],
+        additionalProperties: false
+      }
+    },
+    dimensions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { text: { type: 'string' }, widthFt: { type: 'number' }, lengthFt: { type: 'number' }, x: { type: 'number' }, y: { type: 'number' } },
+        required: ['text', 'widthFt', 'lengthFt', 'x', 'y'],
+        additionalProperties: false
+      }
+    },
+    overallWidthFt: { type: ['number', 'null'] },
+    overallDepthFt: { type: ['number', 'null'] }
+  },
+  required: ['rooms', 'dimensions', 'overallWidthFt', 'overallDepthFt'],
+  additionalProperties: false
+} as const
+
+export interface ReadPlanResult {
+  rooms: { name: string; x: number; y: number }[]
+  dimensions: { text: string; widthFt: number; lengthFt: number; x: number; y: number }[]
+  overallWidthFt: number | null
+  overallDepthFt: number | null
+}

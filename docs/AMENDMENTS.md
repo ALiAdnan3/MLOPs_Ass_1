@@ -56,16 +56,34 @@ Extends §3 (plot), §6 (constraint engine), §56 (validation).
 
 Extends §20 and §21, which were previously marked `[~]` because handwriting and dimension text were not read.
 
-- When a Claude API key is set, a sketch or plan photo can be sent to Claude to read the hand-written room names and dimension text. The answer is structured JSON: room labels with their positions, and the dimensions with their values.
-- The app then names the recognised rooms and sets the scale from a written dimension.
-- Without a key, or offline, everything works as before: typed labels and the user entering the overall width.
+- When a Claude API key is set, the plan-image import has a ticked option: "Read room names and sizes with Claude (sends this image to Claude)". The sketch panel has a **Read handwriting with Claude** button.
+- Claude returns structured JSON with:
+  - room names and their positions on the image (abbreviations such as MBR, D/R and W.C. expanded);
+  - dimensions in feet;
+  - the overall width, if a dimension line states it.
+- The names label the recognised rooms through the existing recogniser. Written sizes such as 16′ × 12′ rescale the plan to the drawing's own dimensions. A written overall width replaces the typed one.
+- On a sketch, what Claude read is added as visible labels, so the user can check it and undo it.
+- Without a key, offline or in a browser, everything works as before: typed labels and the user entering the overall width.
+- The image goes only to Claude, and only when the user chooses it.
+- Verified by a unit test: a simulated reading names the rooms and rescales the plan from "16′ × 12′". The live API call needs a key and was not run in this environment.
 
 ## A6. Photoreal render
 
 Extends §10 (realistic view), §49 (presentation) and §54 (concept images, previously `[~]` because no image-generation model is bundled).
 
-- A path-traced still of the current 3D view gives soft shadows, light bouncing between surfaces and true reflections.
-- It renders the real model, so it never invents a different house. It can be saved as an image or added to the concept board and the presentation.
+- **Photoreal render** is available from the 3D pane header, the 3D toolbar and the concept board.
+- It path-traces the current 3D view with three-gpu-pathtracer: soft shadows, light bouncing between surfaces, reflections and glass. The sky is the same gradient the live view uses, read into an equirectangular environment. The sun and interior lights come from the scene.
+- It renders the real model, so it can never invent a different house.
+- Sizes run from 1280 px to 4K, at the live view's aspect ratio. Quality: Preview (32 samples), Good (160) or Best (600). Style: Materials, or Clay (a white model with glass kept). There is a progress bar with time left, and a Stop button.
+- The result can be saved as a PNG, or added to the concept board, which feeds the presentation.
+- **Graphics backend:**
+  - The path tracer returns black surfaces on ANGLE's Direct3D backend, which is the Windows default. This is a known Direct3D problem with rendering into texture-array layers (three.js issue #25353), confirmed here on Direct3D 11 and Direct3D 11-on-12. OpenGL and Vulkan work.
+  - Settings now has **Graphics: Automatic / OpenGL / Vulkan**, applied at restart. Automatic keeps Direct3D, so nobody's live view changes unless they choose to.
+  - On Direct3D, the render dialog explains this and offers **Switch to OpenGL and restart**. Work is autosaved first.
+  - The live 3D view was checked to render the same on OpenGL.
+- The library's WebGPU path tracer was also evaluated. With three.js 0.186 it generates invalid WGSL, so the WebGL tracer is used.
+- Engine details: the traced copy turns triangles drawn in both windings to agree with their normals, expands instanced trees and plants, and leaves out the sky dome.
+- Verified in Chromium on OpenGL (render, save and add to board) and on Direct3D (explanation shown).
 
 ## A7. Every bathroom is usable
 

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Camera, ImagePlus, Trash2, Download, Box } from 'lucide-react'
+import { Camera, ImagePlus, Trash2, Download, Box, Aperture } from 'lucide-react'
 import { Modal } from '../ui/primitives'
 import { useProject, commit, getProject } from '../state/store'
 import { useUI } from '../state/ui'
@@ -53,6 +53,9 @@ export function ConceptBoard({ onClose }: { onClose: () => void }) {
           </span>
           <button className="btn" onClick={() => file.current?.click()}>
             <ImagePlus size={14} /> Add inspiration photo
+          </button>
+          <button className="btn" data-tip="Path-traced still of the 3D view" onClick={() => useUI.getState().openDialog('photoreal')}>
+            <Aperture size={14} /> Photoreal render
           </button>
           <button className="btn primary" disabled={busy} onClick={() => void capture()}>
             <Camera size={14} /> {busy ? 'Rendering…' : 'Capture current view'}
