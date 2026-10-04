@@ -19,7 +19,8 @@ const autosaveDir = () => {
 
 async function readJson<T>(file: string, fallback: T): Promise<T> {
   try {
-    return JSON.parse(await fs.readFile(join(dir(), file), 'utf8')) as T
+    // tolerate a byte-order mark (files edited by hand on Windows often carry one)
+    return JSON.parse((await fs.readFile(join(dir(), file), 'utf8')).replace(/^\uFEFF/, '')) as T
   } catch {
     return fallback
   }
@@ -96,7 +97,7 @@ const pub = (s: Stored): AppSettings => {
 /** Read before the app is ready: command-line switches must be set before start-up. */
 export function graphicsBackendSync(): AppSettings['graphicsBackend'] {
   try {
-    return (JSON.parse(readFileSync(join(dir(), 'settings.json'), 'utf8')) as Partial<Stored>).graphicsBackend ?? 'auto'
+    return (JSON.parse(readFileSync(join(dir(), 'settings.json'), 'utf8').replace(/^\uFEFF/, '')) as Partial<Stored>).graphicsBackend ?? 'auto'
   } catch {
     return 'auto'
   }
