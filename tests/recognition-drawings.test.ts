@@ -157,3 +157,25 @@ describe('A5 labels read from a drawing', () => {
   })
 })
 
+describe('sketch shape tools', () => {
+  it('turns a drawn rectangle into a room and a small circle into a round pillar', async () => {
+    const { vectorizeStrokes, recognize, circleOf } = await import('@/ai/sketchRecognizer')
+    const rect = { pts: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 4 }, { x: 0, y: 4 }, { x: 0, y: 0 }], shape: 'rect' as const }
+    const circ = { pts: Array.from({ length: 41 }, (_, i) => ({ x: 2.5 + 0.2 * Math.cos((i / 40) * Math.PI * 2), y: 2 + 0.2 * Math.sin((i / 40) * Math.PI * 2) })), shape: 'circle' as const }
+    // a freehand loop is recognised too, a curved line is not
+    const hand = { pts: Array.from({ length: 30 }, (_, i) => ({ x: 1 + 0.25 * Math.cos((i / 29) * Math.PI * 2) + (i % 3) * 0.01, y: 1 + 0.25 * Math.sin((i / 29) * Math.PI * 2) })) }
+    const arc = { pts: Array.from({ length: 20 }, (_, i) => ({ x: 3 + Math.cos((i / 19) * Math.PI), y: 3 + Math.sin((i / 19) * Math.PI) })) }
+    expect(circleOf(circ)).not.toBeNull()
+    expect(circleOf(hand)).not.toBeNull()
+    expect(circleOf(arc)).toBeNull()
+    expect(circleOf(rect)).toBeNull()
+    const strokes = [rect, circ]
+    const circles = strokes.map((s) => circleOf(s)).filter((c): c is NonNullable<typeof c> => !!c)
+    const { segs } = vectorizeStrokes(strokes.filter((s) => !circleOf(s)))
+    const plan = recognize(segs, { circles })
+    expect(plan.rooms.length).toBe(1)
+    expect(plan.columns.length).toBe(1)
+    expect(plan.columns[0].d).toBeCloseTo(0.4, 1)
+  })
+})
+

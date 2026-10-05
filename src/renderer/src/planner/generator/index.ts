@@ -473,7 +473,8 @@ function generateOnce(req: Requirements, plot: Plot, strategy: DesignStrategy, o
 
   // roof level for flat roofs
   const exterior = exteriorForStyle(req.style)
-  if (req.special.largeWindows) exterior.windowScale = 1.2
+  if (req.special.largeWindows) exterior.windowScale = Math.max(exterior.windowScale, 1.2)
+  if (req.special.pillars) exterior.entrancePillars = true
   const top = floors.filter((f) => f.level >= 0).sort((a, b) => b.level - a.level)[0]
   const topCols: Rect[] = layouts.get(top.level)!.columns.map((c) => ({ x: c.x, y: fp.y, w: c.w, h: c.front - fp.y }))
   if (exterior.roofType === 'flat') {

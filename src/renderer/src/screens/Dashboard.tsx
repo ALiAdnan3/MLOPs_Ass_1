@@ -1,7 +1,3 @@
-import { qiblaVector } from '../core/location'
-import { AuthoritySelect } from '../ui/AuthoritySelect'
-import { setbacksFor } from '../core/bylaws'
-import { CitySelect } from '../ui/CitySelect'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import {
@@ -23,6 +19,7 @@ import {
   Play,
   Pencil,
   Square,
+  Circle,
   Type,
   Eraser,
   Ruler,
@@ -31,24 +28,42 @@ import {
   Layers3,
   Share2,
   Maximize2,
-  Compass
+  MousePointer2,
+  Move,
+  RotateCw,
+  Scaling,
+  Undo2,
+  Redo2,
+  Aperture,
+  CloudMoon,
+  UserRound,
+  Building2,
+  BedDouble,
+  Bath,
+  Car,
+  Palmtree,
+  ZoomIn,
+  ZoomOut,
+  Scan,
+  SlidersHorizontal,
+  Keyboard
 } from 'lucide-react'
 import { useUI } from '../state/ui'
 import { useProject, commit, getProject } from '../state/store'
 import { useWizard } from './wizardState'
-import { BrandMark, Modal, Seg, Slider, Stepper } from '../ui/primitives'
-import { PLOT_PRESETS } from '../core/units/plots'
-import { formatAreaFor, formatLength, formatPlotSize } from '../core/units/units'
+import { BrandMark, LengthField, Menu, Modal, Seg, Slider } from '../ui/primitives'
+import { PLOT_PRESETS, presetById } from '../core/units/plots'
+import { FT, formatAreaFor, formatPlotSize } from '../core/units/units'
 import { generateDesignsParallel } from '../ai/designService'
 import { projectFromDesign, applyDesignToProject, openDemoHouse, dressDemo, setMode } from '../app/actions'
 import { renderHouseImage } from '../render/houseImage'
 import { renderPlanToCanvas } from '../render/planImage'
 import { getEngine, hasEngine } from '../engine/Engine'
-import type { DesignOption, FloorsOption, MaterialCategory, MaterialDef, Project, Room } from '../core/model/types'
+import type { ArchitecturalStyle, DesignOption, EntityRef, FloorsOption, Project, Room, UnitSystem } from '../core/model/types'
 import { sortedFloors, floorElevations } from '../core/model/house'
 import { bbox, area } from '../core/geometry/polygon'
 import { spec } from '../core/constraints/rooms'
-import { LIBRARY } from '../core/materials/library'
+import { resolveMaterial } from '../core/materials/library'
 import { useMaterialThumb, thumbStyle } from '../render/materialThumb'
 import { MaterialPicker } from '../workspace/Inspector'
 import { setRoomSize, refurnishRoom } from '../planner/operations'
@@ -58,21 +73,31 @@ import { platform } from '../storage/platform'
 import type { AutosaveEntry, RecentProject } from '../../../shared/api'
 import { openProjectDialog, openRecent, restoreAutosave, saveProject } from '../storage/session'
 import { TEMPLATES, templateRequirements } from '../planner/templates'
-import { newProject, plotFromPreset, DISCLAIMER } from '../core/model/defaults'
-import { presetById } from '../core/units/plots'
-import { northAngle } from '../engine/lighting/sun'
+import { newProject, plotFromPreset, makePlot, DISCLAIMER, MIX_STYLES, STYLE_TITLE } from '../core/model/defaults'
+import { planBearing, presetTime, sunriseSunset } from '../engine/lighting/sun'
 import { useSketch } from '../modes/sketchState'
 import { droneState, type DronePath } from '../engine/controllers/DroneController'
+import { surfaceToEntity } from '../engine/Viewport3D'
+import { rotateSelection } from '../editor/commands'
+import { catalogItem } from '../core/furniture/catalog'
+import { qiblaVector } from '../core/location'
+import { CitySelect } from '../ui/CitySelect'
+import { AuthoritySelect } from '../ui/AuthoritySelect'
+import { setbacksFor } from '../core/bylaws'
 
 /**
- * DESIGN DASHBOARD (home screen): one page to set up the plot and requirements, generate
- * designs, see the house live in 3D with its rendered plan and cut-away, pick finishes for any
- * room with a preview, tweak a room's size, and jump into every tool.
+ * DESIGN DASHBOARD (home screen): set up the plot and requirements, generate designs in several
+ * styles, see the house live in 3D (select, move, rotate and resize right there), compare the
+ * rendered plan and cut-away, pick finishes with a room preview, adjust a room, and jump into
+ * every tool.
  */
 
 let sampleCache: Project | null = null
 
 const hasHouse = (p: Project) => p.floors.some((f) => f.rooms.length > 0)
+/** Blue hour: just after sunset for the plot's latitude and date, the sky still glowing and the lights on. */
+const eveningTime = (L: { latitude: number; dayOfYear: number }) => Math.round((sunriseSunset(L.latitude, L.dayOfYear).sunset + 0.12) * 100) / 100
+const atEvening = (p: Project) => void (p.settings.lighting = { ...p.settings.lighting, preset: 'custom', time: eveningTime(p.settings.lighting) })
 
 export function Dashboard() {
   const project = useProject((s) => s.project)
@@ -83,18 +108,19 @@ export function Dashboard() {
   const [roomId, setRoomId] = useState<string | null>(null)
   const [projectsOpen, setProjectsOpen] = useState(false)
 
-  // a sample house to show before the user has one
+  // a sample villa to show before the user has a house of their own
   useEffect(() => {
     if (real || sampleCache) return
     let alive = true
     const t = TEMPLATES.find((x) => x.id === '1k-luxury')!
     const req = templateRequirements(t)
+    req.style = 'luxury'
     const timer = setTimeout(() => {
       generateDesignsParallel(req, plotFromPreset(t.preset), newProject().settings, () => {}, { strategies: ['luxury-open'], baseSeed: 2020, iterations: 1500 }).then(({ designs: ds }) => {
         if (!alive || !ds[0]) return
         const p = projectFromDesign(ds[0], req, ds, t.name)
         dressDemo(p)
-        p.settings.lighting = { ...p.settings.lighting, preset: 'sunset', time: 17.6 }
+        atEvening(p)
         sampleCache = p
         setSample(p)
       })
@@ -111,8 +137,8 @@ export function Dashboard() {
     if (project.designs.length) setDesigns(project.designs)
   }, [project.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // the room the right-hand panels work on
-  const rooms = useMemo(() => (shown ? shown.floors.flatMap((f) => f.rooms.filter((r) => r.type !== 'void').map((r) => ({ f, r }))) : []), [shown])
+  // the room the right-hand panels work on (follows a room picked in the 3D view)
+  const rooms = useMemo(() => (shown ? shown.floors.flatMap((f) => f.rooms.filter((r) => r.type !== 'void' && !spec(r.type).outdoor).map((r) => ({ f, r }))) : []), [shown])
   useEffect(() => {
     if (roomId && rooms.some((x) => x.r.id === roomId)) return
     const pick = rooms.find((x) => ['tv_lounge', 'living', 'drawing', 'family'].includes(x.r.type)) ?? rooms[0]
@@ -126,16 +152,16 @@ export function Dashboard() {
       <div className="dash-grid">
         <SetupPanel project={real ? project : null} onDesigns={setDesigns} onProjects={() => setProjectsOpen(true)} />
         <main className="dash-center">
-          <Hero project={shown} />
+          <Hero project={shown} real={real} onRoom={setRoomId} />
           <div className="dash-tiles">
             <PlanTile project={shown} />
             <CutawayTile project={shown} />
           </div>
-          <DesignStrip designs={designs} activeId={real ? project.activeDesignId : undefined} />
+          <DesignStrip designs={designs} activeId={real ? project.activeDesignId : undefined} shown={shown} />
         </main>
         <aside className="dash-right">
-          <FinishesPanel project={real ? project : null} view={shown} current={current} rooms={rooms} setRoomId={setRoomId} />
-          <CustomizePanel project={real ? project : null} current={current} />
+          <FinishesPanel project={real ? project : null} view={shown} current={current} />
+          <CustomizePanel project={real ? project : null} view={shown} current={current} rooms={rooms} setRoomId={setRoomId} />
           <SketchTools />
         </aside>
       </div>
@@ -151,6 +177,7 @@ function DashNav({ onProjects }: { onProjects: () => void }) {
   const theme = useUI((s) => s.theme)
   const set = useUI((s) => s.set)
   const real = useProject((s) => hasHouse(s.project))
+  const name = useProject((s) => s.project.name)
   const go = (mode: Parameters<typeof setMode>[0]) => {
     if (!real) {
       useUI.getState().toast({ kind: 'info', title: 'Generate or open a house first', body: 'Use Generate Possible Designs on the left, or open the demo house.' })
@@ -169,6 +196,7 @@ function DashNav({ onProjects }: { onProjects: () => void }) {
     { label: 'Materials', icon: <Palette />, run: () => go('materials') },
     { label: 'Save / Export', icon: <Save />, run: () => (real ? useUI.getState().openDialog('export') : go('plan')) }
   ]
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   return (
     <header className="dash-nav titlebar">
       <div className="brand">
@@ -177,9 +205,10 @@ function DashNav({ onProjects }: { onProjects: () => void }) {
         </span>
         <span className="brand-text">
           <b>HomeForge AI</b>
-          <small>Design. Generate. Customize. Experience Your Home.</small>
+          <small>Design • Plan • Visualize • Build</small>
         </span>
       </div>
+      <div className="drag" />
       <nav className="dash-links">
         {items.map((i) => (
           <button key={i.label} className={i.on ? 'on' : ''} onClick={i.run} aria-label={i.label} data-tip={i.label}>
@@ -189,65 +218,92 @@ function DashNav({ onProjects }: { onProjects: () => void }) {
         ))}
       </nav>
       <div className="drag" />
-      <button className="icon-btn" aria-label="Projects" data-tip="Open, recent and templates" onClick={onProjects}>
-        <FolderOpen />
-      </button>
       <button className="icon-btn" aria-label="Settings" data-tip="Settings" onClick={() => useUI.getState().openDialog('settings')}>
         <Settings />
       </button>
-      <button className="icon-btn" aria-label={theme === 'dark' ? 'Light theme' : 'Dark theme'} data-tip={theme === 'dark' ? 'Light theme' : 'Dark theme'} onClick={() => set({ theme: theme === 'dark' ? 'light' : 'dark' })}>
-        {theme === 'dark' ? <Sun /> : <Moon />}
+      <button className="avatar-btn" aria-label="Account and projects" data-tip={real ? name : 'Projects'} onClick={(e) => {
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+          setMenu({ x: r.right - 220, y: r.bottom + 6 })
+        }}>
+        <UserRound />
       </button>
+      {menu && (
+        <Menu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            { heading: real ? name : 'HomeForge AI' },
+            { label: 'Open, recent and templates…', onClick: onProjects },
+            ...(real ? [{ label: 'Save project', shortcut: 'Ctrl+S', onClick: () => void saveProject() }] : []),
+            { label: theme === 'dark' ? 'Light theme' : 'Dark theme', onClick: () => set({ theme: theme === 'dark' ? 'light' : 'dark' }) },
+            { label: 'Keyboard shortcuts', onClick: () => useUI.getState().openDialog('shortcuts') },
+            { label: 'Settings', onClick: () => useUI.getState().openDialog('settings') }
+          ]}
+        />
+      )}
     </header>
   )
 }
 
 /* ── left: project setup ─────────────────────────────────────────────────── */
 
-const SIZES = ['5-marla', '7-marla', '10-marla', '15-marla', '1-kanal', '2-kanal', '4-kanal']
+const SIZES = ['5-marla', '7-marla', '10-marla', '1-kanal', '2-kanal', '4-kanal']
 const FLOORS: { v: FloorsOption; label: string }[] = [
-  { v: 'single', label: '1 (ground only)' },
-  { v: 'double', label: '2 (double storey)' },
-  { v: 'triple', label: '3 (triple storey)' },
+  { v: 'single', label: '1' },
+  { v: 'double', label: '2' },
+  { v: 'triple', label: '3' },
   { v: 'basement+ground', label: 'Basement + 1' },
   { v: 'basement+ground+first', label: 'Basement + 2' },
   { v: 'basement+ground+first+second', label: 'Basement + 3' }
 ]
+const STYLE_CHOICES: { v: ArchitecturalStyle | 'mix'; label: string }[] = [
+  { v: 'mix', label: 'Mix of styles' },
+  ...(['luxury', 'contemporary', 'european', 'minimalist', 'traditional', 'modern', 'mediterranean', 'colonial', 'islamic', 'farmhouse', 'industrial', 'pakistani_modern'] as ArchitecturalStyle[]).map((v) => ({ v, label: STYLE_TITLE[v] }))
+]
+const metric = (u: UnitSystem) => u === 'm' || u === 'cm'
+const num = (m: number, u: UnitSystem) => (metric(u) ? m : m / FT)
 
 function SetupPanel(props: { project: Project | null; onDesigns: (d: DesignOption[]) => void; onProjects: () => void }) {
   const w = useWizard()
   const [prompt, setPrompt] = useState('')
   const [running, setRunning] = useState<string | null>(null)
+  const [styleChoice, setStyleChoice] = useState<ArchitecturalStyle | 'mix'>('mix')
+  const [dimUnits, setDimUnits] = useState<UnitSystem>('m')
   const u = props.project?.settings.units ?? 'ft-in'
   const preset = w.plot.presetId
+  const custom = !preset
   const generate = async () => {
     setRunning('Starting…')
     let done = 0
     try {
-      const { designs, errors } = await generateDesignsParallel(w.req, w.plot, props.project?.settings ?? newProject().settings, (g) => {
+      const req = styleChoice === 'mix' ? w.req : { ...w.req, style: styleChoice }
+      const { designs, errors } = await generateDesignsParallel(req, w.plot, props.project?.settings ?? newProject().settings, (g) => {
         if (g.design) done += 1
         setRunning(`Designing… ${done} of 5 ready`)
-      }, {})
+      }, styleChoice === 'mix' ? { styles: MIX_STYLES } : {})
       if (!designs.length) {
         useUI.getState().showError({ what: 'No design could be generated.', why: errors[0]?.why ?? 'The requirements do not fit on this plot.', fix: errors[0]?.fix ?? 'Choose a larger plot or fewer rooms, then try again.', retry: () => void generate() })
         return
       }
+      // the luxury villa (or the first design) becomes the house straight away; the strip offers the others
+      const first = designs.find((d) => d.strategy === 'luxury-open') ?? designs[0]
       props.onDesigns(designs)
-      // the first design becomes the house straight away; the strip offers the others
       const p = getProject()
       if (!hasHouse(p)) {
-        const np = projectFromDesign(designs[0], structuredClone(w.req), designs)
+        const np = projectFromDesign(first, structuredClone(req), designs)
+        atEvening(np)
         useProject.getState().load(np)
       } else {
         commit('Update requirements', (d) => {
-          d.requirements = structuredClone(w.req) as typeof d.requirements
+          d.requirements = structuredClone(req) as typeof d.requirements
           d.designs = designs as typeof d.designs
         })
-        applyDesignToProject(designs[0])
+        applyDesignToProject(first)
       }
       const g = sortedFloors(getProject().floors).find((f) => f.level === 0)
       useUI.getState().set({ floorId: g?.id ?? '' })
-      useUI.getState().toast({ kind: 'success', title: `${designs.length} designs ready`, body: 'Design A is shown. Pick another from the strip below the 3D view.' })
+      useUI.getState().toast({ kind: 'success', title: `${designs.length} designs ready`, body: `${STYLE_TITLE[first.house.exterior.style]} is shown. Pick another from the strip below the 3D view.` })
     } finally {
       setRunning(null)
     }
@@ -276,22 +332,47 @@ function SetupPanel(props: { project: Project | null; onDesigns: (d: DesignOptio
         if (v && !r.floors.startsWith('basement')) r.floors = r.floors === 'single' ? 'basement+ground' : r.floors === 'triple' ? 'basement+ground+first+second' : 'basement+ground+first'
         if (!v && r.floors.startsWith('basement')) r.floors = r.floors === 'basement+ground' ? 'single' : r.floors === 'basement+ground+first' ? 'double' : 'triple'
       }) },
-    { label: 'Garage', on: req.outdoor.garage, set: (v) => w.setReq((r) => void (r.outdoor.garage = v)) },
-    { label: 'Lawn / garden', on: req.outdoor.frontLawn || req.outdoor.backLawn, set: (v) => w.setReq((r) => {
+    { label: 'Garage', on: req.outdoor.garage, set: (v) => w.setReq((r) => {
+        r.outdoor.garage = v
+        if (v && r.outdoor.cars === 0) r.outdoor.cars = 1
+      }) },
+    { label: 'Lawn / Garden', on: req.outdoor.frontLawn || req.outdoor.backLawn, set: (v) => w.setReq((r) => {
         r.outdoor.frontLawn = v
         r.outdoor.backLawn = v
       }) },
-    { label: 'Pool', on: req.outdoor.pool, set: (v) => w.setReq((r) => void (r.outdoor.pool = v)) },
-    { label: 'Double height', on: req.special.doubleHeightLounge, set: (v) => w.setReq((r) => void (r.special.doubleHeightLounge = v)) }
+    { label: 'Pillars', on: !!req.special.pillars, set: (v) => w.setReq((r) => void (r.special.pillars = v)) },
+    { label: 'Pool', on: req.outdoor.pool, set: (v) => w.setReq((r) => void (r.outdoor.pool = v)) }
   ]
-  const rooms = props.project ? props.project.floors.flatMap((f) => f.rooms.filter((r) => !['void', 'corridor', 'foyer', 'stair', 'mumty', 'balcony', 'terrace'].includes(r.type) && !spec(r.type).outdoor)) : []
+  const roomList = props.project ? props.project.floors.flatMap((f) => f.rooms.filter((r) => !['void', 'corridor', 'foyer', 'stair', 'mumty', 'balcony', 'terrace', 'lift'].includes(r.type) && !spec(r.type).outdoor)) : []
+  const fmt = (m: number) => (metric(dimUnits) ? (Math.round(m * 10) / 10).toString() : `${Math.round(m / FT)}′`)
+  const reqRow = (icon: JSX.Element, label: string, control: JSX.Element) => (
+    <div className="req-row">
+      <span className="req-label">
+        {icon}
+        {label}
+      </span>
+      {control}
+    </div>
+  )
+  const numSelect = (value: number, min: number, max: number, onChange: (v: number) => void, aria: string) => (
+    <select className="field" value={value} aria-label={aria} onChange={(e) => onChange(Number(e.target.value))}>
+      {Array.from({ length: max - min + 1 }, (_, i) => min + i).map((n) => (
+        <option key={n} value={n}>
+          {n}
+        </option>
+      ))}
+    </select>
+  )
   return (
     <aside className="dash-left">
+      <div className="panel-title">
+        <PencilRuler size={16} /> Project Setup
+      </div>
       <section className="dash-card">
         <header>
-          <h3>Start</h3>
+          <h3>Describe your house</h3>
         </header>
-        <textarea className="field" rows={3} placeholder="Describe the house you want, for example: 10 marla, 2 floors, 4 bedrooms, basement, lawn, 2 car garage" value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && describe()} aria-label="Describe your house" />
+        <textarea className="field" rows={2} placeholder="Describe the house you want, for example: 10 marla, 2 floors, 4 bedrooms, basement, lawn, 2 car garage" value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && describe()} aria-label="Describe your house" />
         <div className="row" style={{ gap: 6, marginTop: 6 }}>
           <button className="btn sm primary grow" disabled={!prompt.trim()} onClick={plan} data-tip="Review every requirement step by step">
             Plan my house
@@ -311,11 +392,31 @@ function SetupPanel(props: { project: Project | null; onDesigns: (d: DesignOptio
       </section>
       <section className="dash-card">
         <header>
-          <h3>House size</h3>
+          <h3>House Size</h3>
           <span className="sub">{formatPlotSize(w.plot.width, w.plot.depth, u)}</span>
         </header>
-        <div className="req-row" style={{ marginBottom: 8 }}>
-          <span>City</span>
+        <div className="size-grid">
+          {SIZES.map((id) => {
+            const pr = presetById(id)!
+            return (
+              <button key={id} className={preset === id ? 'on' : ''} onClick={() => w.choosePreset(id)}>
+                {pr.label}
+              </button>
+            )
+          })}
+        </div>
+        <label className="side-check custom-size">
+          <input type="checkbox" checked={custom} onChange={(e) => (e.target.checked ? w.setCustom(w.plot.width, w.plot.depth) : w.choosePreset('10-marla'))} />
+          Custom Size
+        </label>
+        {custom && (
+          <div className="custom-size-fields">
+            <LengthField value={w.plot.width} units={u} min={4.5} max={150} onCommit={(v) => w.setCustom(v, w.plot.depth)} tip="Plot width (frontage)" />
+            <span className="faint">×</span>
+            <LengthField value={w.plot.depth} units={u} min={7} max={250} onCommit={(v) => w.setCustom(w.plot.width, v)} tip="Plot depth" />
+          </div>
+        )}
+        {reqRow(<Building2 size={14} />, 'City', (
           <CitySelect
             plot={w.plot}
             onChange={(loc) => {
@@ -327,15 +428,15 @@ function SetupPanel(props: { project: Project | null; onDesigns: (d: DesignOptio
                 })
             }}
           />
-        </div>
-        <div className="req-row" style={{ marginBottom: 8 }}>
-          <span>Rules</span>
+        ))}
+        {reqRow(<SlidersHorizontal size={14} />, 'Rules', (
           <AuthoritySelect
             value={w.plot.authority}
             onChange={(a) => {
               w.setPlot((p) => {
                 p.authority = a
                 if (a) p.setbacks = setbacksFor(a, p)
+                else p.setbacks = makePlot(p.width, p.depth, p.presetId).setbacks
               })
               if (props.project)
                 commit(a ? 'Building rules' : 'No authority rules', (d) => {
@@ -344,53 +445,43 @@ function SetupPanel(props: { project: Project | null; onDesigns: (d: DesignOptio
                 })
             }}
           />
-        </div>
-        <div className="size-grid">
-          {SIZES.map((id) => {
-            const pr = presetById(id)!
-            return (
-              <button key={id} className={preset === id ? 'on' : ''} onClick={() => w.choosePreset(id)}>
-                {pr.label}
-              </button>
-            )
-          })}
-          <button className={!preset ? 'on' : ''} onClick={() => useUI.getState().set({ screen: 'wizard' })}>
-            Custom size
-          </button>
-        </div>
+        ))}
       </section>
       <section className="dash-card">
         <header>
-          <h3>House requirements</h3>
+          <h3>House Requirements</h3>
         </header>
-        <div className="req-row">
-          <span>Floors</span>
-          <select className="field" value={req.floors === 'custom' ? 'double' : req.floors} onChange={(e) => w.setReq((r) => void (r.floors = e.target.value as FloorsOption))}>
+        {reqRow(<Layers3 size={14} />, 'Floors', (
+          <select className="field" aria-label="Floors" value={req.floors === 'custom' ? 'double' : req.floors} onChange={(e) => w.setReq((r) => void (r.floors = e.target.value as FloorsOption))}>
             {FLOORS.map((f) => (
               <option key={f.v} value={f.v}>
                 {f.label}
               </option>
             ))}
           </select>
-        </div>
-        <div className="req-row">
-          <span>Bedrooms</span>
-          <Stepper value={req.rooms.bedrooms} min={1} max={12} onChange={(v) => w.setReq((r) => {
-              r.rooms.bedrooms = v
-              r.rooms.bathrooms = Math.max(r.rooms.bathrooms, v)
-            })} />
-        </div>
-        <div className="req-row">
-          <span>Bathrooms</span>
-          <Stepper value={req.rooms.bathrooms} min={1} max={14} onChange={(v) => w.setReq((r) => void (r.rooms.bathrooms = v))} />
-        </div>
-        <div className="req-row">
-          <span>Car parking</span>
-          <Stepper value={req.outdoor.cars} min={0} max={4} onChange={(v) => w.setReq((r) => {
-              r.outdoor.cars = v
-              r.outdoor.garage = v > 0
-            })} />
-        </div>
+        ))}
+        {reqRow(<BedDouble size={14} />, 'Bedrooms', numSelect(req.rooms.bedrooms, 1, 10, (v) => w.setReq((r) => {
+          r.rooms.bedrooms = v
+          r.rooms.bathrooms = Math.max(r.rooms.bathrooms, v)
+        }), 'Bedrooms'))}
+        {reqRow(<Bath size={14} />, 'Bathrooms', numSelect(req.rooms.bathrooms, 1, 12, (v) => w.setReq((r) => void (r.rooms.bathrooms = v)), 'Bathrooms'))}
+        {reqRow(<Car size={14} />, 'Car parking', numSelect(req.outdoor.cars, 0, 4, (v) => w.setReq((r) => {
+          r.outdoor.cars = v
+          r.outdoor.garage = v > 0
+        }), 'Car parking'))}
+        {reqRow(<Palmtree size={14} />, 'Style', (
+          <select className="field" aria-label="Style" value={styleChoice} onChange={(e) => {
+              const v = e.target.value as ArchitecturalStyle | 'mix'
+              setStyleChoice(v)
+              if (v !== 'mix') w.setReq((r) => void (r.style = v))
+            }}>
+            {STYLE_CHOICES.map((s) => (
+              <option key={s.v} value={s.v}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        ))}
         <div className="req-checks">
           {toggles.map((t) => (
             <label key={t.label} className="side-check">
@@ -403,20 +494,20 @@ function SetupPanel(props: { project: Project | null; onDesigns: (d: DesignOptio
           All requirements and preferences
         </button>
       </section>
-      {rooms.length > 0 && (
+      {roomList.length > 0 && (
         <section className="dash-card">
           <header>
-            <h3>Room dimensions</h3>
-            <span className="sub">{u === 'm' || u === 'cm' ? 'metres' : 'feet'}</span>
+            <h3>Room Dimensions</h3>
+            <Seg value={dimUnits === 'm' ? 'm' : 'ft-in'} onChange={(v) => setDimUnits(v as UnitSystem)} options={[{ value: 'm', label: 'm' }, { value: 'ft-in', label: 'ft' }]} />
           </header>
           <div className="room-dims">
-            {rooms.slice(0, 12).map((r) => {
+            {roomList.slice(0, 14).map((r) => {
               const b = bbox(r.polygon)
               return (
                 <div key={r.id} className="count-row">
                   <span>{r.name}</span>
-                  <span className="tabular">
-                    {formatLength(b.w, u, { compact: true })} × {formatLength(b.h, u, { compact: true })}
+                  <span className="tabular dim-chip">
+                    {fmt(Math.max(b.w, b.h))} × {fmt(Math.min(b.w, b.h))}
                   </span>
                 </div>
               )
@@ -434,15 +525,93 @@ function SetupPanel(props: { project: Project | null; onDesigns: (d: DesignOptio
   )
 }
 
-/* ── centre: hero, tiles, designs ────────────────────────────────────────── */
+/* ── centre: hero (live 3D with editing tools) ───────────────────────────── */
 
-type HeroView = 'exterior' | 'interior' | 'top' | 'orbit'
+type HeroView = 'exterior' | 'interior' | 'top'
+type ExtCam = 'drone' | 'street' | 'orbit' | 'front' | 'back' | 'left' | 'right'
+type HeroTool = 'select' | 'move' | 'rotate' | 'resize'
 
-function Hero({ project }: { project: Project | null }) {
+const EXT_CAMS: { key: ExtCam; label: string }[] = [
+  { key: 'drone', label: 'Drone view' },
+  { key: 'street', label: 'Street view' },
+  { key: 'orbit', label: 'Orbit (turning)' },
+  { key: 'front', label: 'Front' },
+  { key: 'back', label: 'Back' },
+  { key: 'left', label: 'Left side' },
+  { key: 'right', label: 'Right side' }
+]
+
+/**
+ * Camera for the dashboard hero: a three-quarter view of the front from the left, either raised
+ * ("drone") or from the road at eye level, distanced so the whole house fits, and nudged so the house
+ * sits clear of the View Mode panel on the right.
+ */
+function heroPose(p: Project, cam: 'drone' | 'street', aspect: number) {
+  const pts = p.floors.filter((f) => f.level >= 0).flatMap((f) => f.rooms.filter((r) => r.type !== 'void' && !spec(r.type).outdoor).flatMap((r) => r.polygon))
+  const b = bbox(pts.length ? pts : p.plot.polygon)
+  const H = p.floors.filter((f) => f.level >= 0 && f.kind !== 'roof').reduce((a, f) => a + f.height, 0) + p.settings.plinthHeight + 1.2
+  const fov = cam === 'drone' ? 40 : 50
+  const vf = THREE.MathUtils.degToRad(fov) / 2
+  const hf = Math.atan(Math.tan(vf) * aspect)
+  const target = new THREE.Vector3(b.x + b.w / 2, H * 0.5, b.y + b.h / 2)
+  const az = cam === 'drone' ? 0.4 : 0.36
+  const el = cam === 'drone' ? 0.3 : 0.04
+  const dir = new THREE.Vector3(-Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el))
+  // fit the house's bounding sphere, but don't step back further than the road for an eye-level view
+  const r = 0.5 * Math.hypot(b.w, b.h, H)
+  let dist = (r / Math.sin(Math.min(vf, hf))) * (cam === 'drone' ? 0.98 : 0.9)
+  if (cam === 'street') dist = Math.min(dist, (p.plot.depth + p.plot.roadWidth * 0.8 - target.z) / Math.cos(az))
+  const pos = target.clone().addScaledVector(dir, dist)
+  if (cam === 'street') pos.y = 1.7
+  const right = new THREE.Vector3().subVectors(target, pos).cross(new THREE.Vector3(0, 1, 0)).normalize()
+  const shift = dist * Math.tan(hf) * 0.08
+  pos.addScaledVector(right, shift)
+  target.addScaledVector(right, shift)
+  // and lowered in the frame, below the toolbar across the top
+  const camUp = right.clone().cross(new THREE.Vector3().subVectors(target, pos)).normalize()
+  const lift = dist * Math.tan(vf) * 0.14
+  pos.addScaledVector(camUp, lift)
+  target.addScaledVector(camUp, lift)
+  return { pos, target, fov }
+}
+
+function entityLabel(p: Project, e: EntityRef | undefined): string | null {
+  if (!e) return null
+  const f = p.floors.find((x) => x.id === e.floorId)
+  switch (e.kind) {
+    case 'room':
+      return f?.rooms.find((r) => r.id === e.id)?.name ?? 'Room'
+    case 'furniture': {
+      const it = f?.furniture.find((x) => x.id === e.id)
+      return it ? (catalogItem(it.type)?.name ?? it.type) : 'Furniture'
+    }
+    case 'wall':
+      return 'Wall'
+    case 'stair':
+      return 'Stairs'
+    case 'column':
+      return 'Column'
+    case 'siteArea':
+      return p.site.areas.find((a) => a.id === e.id)?.name ?? 'Garden area'
+    default:
+      return null
+  }
+}
+
+function Hero({ project, real, onRoom }: { project: Project | null; real: boolean; onRoom: (id: string) => void }) {
   const ref = useRef<HTMLDivElement>(null)
-  const [view, setView] = useState<HeroView>('orbit')
-  const lighting = useProject((s) => s.project.settings.lighting.preset)
-  const real = useProject((s) => hasHouse(s.project))
+  const [view, setView] = useState<HeroView>('exterior')
+  const [cam, setCam] = useState<string>('drone')
+  const [tool, setTool] = useState<HeroTool>('select')
+  const [needle, setNeedle] = useState(0)
+  const canUndo = useProject((s) => s.past.length > 0)
+  const canRedo = useProject((s) => s.future.length > 0)
+  const selection = useUI((s) => s.selection)
+  const live = useProject((s) => s.project)
+  const lighting = (real ? live : (project ?? live)).settings.lighting
+  const rooms = useMemo(() => (project ? project.floors.flatMap((f) => f.rooms.filter((r) => spec(r.type).walkable && !spec(r.type).outdoor && r.type !== 'garage').map((r) => ({ f, r }))) : []), [project])
+
+  // mount the shared engine here and frame the camera for the chosen view
   useEffect(() => {
     const el = ref.current
     if (!el || !project) return
@@ -450,75 +619,222 @@ function Hero({ project }: { project: Project | null }) {
     e.mount(el)
     e.setController(null)
     e.update(project, heroOptions(project))
-    if (view === 'orbit') {
-      // wider than the standard orbit: the hero is a very wide frame
-      const c = e.houseCenter()
-      const s = Math.max(10, Math.min(60, Math.max(project.plot.width, project.plot.depth)))
-      e.flyTo(new THREE.Vector3(c.x + s * 1.1, c.y + s * 0.62, c.z + s * 1.3), c, 0)
-    } else e.setCameraPreset(view === 'exterior' ? 'facade' : view === 'interior' ? 'interior' : 'top', undefined, false)
-    e.controls.autoRotate = view === 'orbit'
-    e.controls.autoRotateSpeed = 0.35
+    e.controls.autoRotate = false
+    if (view === 'exterior') {
+      if (cam === 'drone' || cam === 'street') {
+        const pose = heroPose(project, cam, el.clientWidth / Math.max(1, el.clientHeight))
+        e.camera.fov = pose.fov
+        e.camera.updateProjectionMatrix()
+        e.flyTo(pose.pos, pose.target, 0)
+      } else if (cam === 'orbit') {
+        const c = e.houseCenter()
+        const s = Math.max(10, Math.min(60, Math.max(project.plot.width, project.plot.depth)))
+        e.flyTo(new THREE.Vector3(c.x + s * 1.1, c.y + s * 0.62, c.z + s * 1.3), c, 0)
+        e.controls.autoRotate = true
+        e.controls.autoRotateSpeed = 0.35
+      } else e.setCameraPreset(cam as 'front' | 'back' | 'left' | 'right', undefined, false)
+    } else if (view === 'interior') {
+      const r = rooms.find((x) => x.r.id === cam) ?? rooms.find((x) => ['tv_lounge', 'living', 'drawing'].includes(x.r.type)) ?? rooms[0]
+      if (r) {
+        useUI.getState().set({ floorId: r.f.id })
+        e.update(project, { ...heroOptions(project), floorId: r.f.id })
+        e.setCameraPreset('room', r.r.id, false)
+      } else e.setCameraPreset('interior', undefined, false)
+    } else e.setCameraPreset('top', undefined, false)
     e.controls.update()
     let raf = 0
-    const spin = () => {
+    let last = 0
+    const tick = (t: number) => {
       if (e.controls.autoRotate) {
         e.controls.update()
         e.invalidate()
       }
-      raf = requestAnimationFrame(spin)
+      // the compass follows the camera
+      if (t - last > 100) {
+        last = t
+        // the way the view faces across the ground (straight down: the top of the screen)
+        const cm = e.active
+        cm.updateMatrixWorld()
+        const f = new THREE.Vector3(0, 0, -1).transformDirection(cm.matrixWorld)
+        if (Math.abs(f.y) > 0.95) f.set(0, 1, 0).transformDirection(cm.matrixWorld)
+        const n = planBearing(project.plot, 0)
+        const sx = -n.x * f.z + n.y * f.x
+        const sy = n.x * f.x + n.y * f.z
+        setNeedle((Math.atan2(sx, sy) * 180) / Math.PI)
+      }
+      raf = requestAnimationFrame(tick)
     }
-    raf = requestAnimationFrame(spin)
+    raf = requestAnimationFrame(tick)
     return () => {
       cancelAnimationFrame(raf)
       e.controls.autoRotate = false
+      e.camera.fov = 50
+      e.camera.updateProjectionMatrix()
+      e.highlight(null, 'select')
       e.unmount(el)
     }
     // the camera is framed once per house and view; edits below only refresh the scene
-  }, [project?.id, view]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [project?.id, view, cam]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (project && ref.current && hasEngine() && getEngine().container === ref.current) getEngine().update(project, heroOptions(project))
   }, [project])
-  const setLight = (preset: 'noon' | 'sunset' | 'night') => {
-    if (!real) return
-    const time = preset === 'noon' ? 12.5 : preset === 'sunset' ? 17.8 : 20.5
-    commit(`Lighting: ${preset}`, (d) => {
+
+  // picking: a click (not a drag) selects what is under the pointer
+  const down = useRef<{ x: number; y: number } | null>(null)
+  const onUp = (ev: React.PointerEvent) => {
+    const d = down.current
+    down.current = null
+    if (!d || Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 4 || ev.button !== 0 || !project || !hasEngine()) return
+    const e = getEngine()
+    const hit = e.pick(ev.clientX, ev.clientY)
+    const ent = surfaceToEntity(hit?.surface ?? null)
+    e.highlight(hit?.surface ?? null, 'select')
+    if (!real) {
+      if (ent) useUI.getState().toast({ kind: 'info', title: 'This is a sample house', body: 'Generate or open your own house to edit it.' })
+      return
+    }
+    useUI.getState().set({ selection: ent ? [ent] : [], surface: hit?.surface ?? null })
+    if (ent?.kind === 'room') onRoom(ent.id)
+    if (ent && tool !== 'select') runTool(tool, ent)
+  }
+
+  const needSel = () => {
+    useUI.getState().toast({ kind: 'info', title: 'Select something first', body: 'Click a room, wall or piece of furniture in the 3D view.' })
+  }
+  const openEditor = (label: string, body: string) => {
+    useUI.getState().set({ screen: 'workspace', tool: 'select' })
+    setMode('plan')
+    useUI.getState().toast({ kind: 'info', title: label, body })
+  }
+  const runTool = (t: HeroTool, ent: EntityRef | undefined = selection[0]) => {
+    setTool(t)
+    if (t === 'select') return
+    if (!real) return useUI.getState().toast({ kind: 'info', title: 'Generate or open a house first' })
+    if (!ent) return needSel()
+    if (ent.floorId) useUI.getState().set({ floorId: ent.floorId })
+    if (t === 'move') return openEditor('Drag to move it', 'The selection is kept in the plan. Drag it, or use the arrow keys.')
+    if (t === 'rotate') {
+      if (ent.kind === 'furniture' || ent.kind === 'stair' || ent.kind === 'column') {
+        rotateSelection(Math.PI / 2)
+        return useUI.getState().toast({ kind: 'success', title: 'Turned 90°', body: 'Press Rotate again to keep turning; Ctrl+Z undoes it.' })
+      }
+      return openEditor('Rooms and walls turn in the plan', 'Drag a corner to reshape, or redraw the room with the Draw room tool.')
+    }
+    if (t === 'resize') {
+      if (ent.kind === 'room') {
+        onRoom(ent.id)
+        document.querySelector('.dims-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        return useUI.getState().toast({ kind: 'info', title: 'Resize on the right', body: 'Set length, width and height under Adjust Dimensions, then Apply changes.' })
+      }
+      return openEditor('Drag the handles to resize', 'The selection is kept in the plan.')
+    }
+  }
+  const setLight = (time: number, preset: 'noon' | 'sunset' | 'night' | 'custom') => {
+    if (!real) return useUI.getState().toast({ kind: 'info', title: 'Generate or open a house first', body: 'The sample house keeps its evening light.' })
+    commit('Lighting', (d) => {
       d.settings.lighting.preset = preset
       d.settings.lighting.time = time
     })
   }
-  const na = project ? (northAngle(project.plot) * 180) / Math.PI : 0
+  const sel = selection[0]
+  const selLabel = real ? entityLabel(live, sel) : null
+  const { sunset } = sunriseSunset(lighting.latitude, lighting.dayOfYear)
+  const t = lighting.time
+  const lightKey = t > sunset - 1 || t < 6 ? (t > sunset + 0.75 || t < 6 ? 'night' : t > sunset ? 'evening' : 'sunset') : 'day'
+  const lights = [
+    ['day', <Sun key="d" />, 'Day', presetTime('noon', lighting.latitude, lighting.dayOfYear), 'noon'],
+    ['sunset', <Sunset key="s" />, 'Sunset', presetTime('sunset', lighting.latitude, lighting.dayOfYear), 'sunset'],
+    ['evening', <CloudMoon key="e" />, 'Evening', eveningTime(lighting), 'custom'],
+    ['night', <Moon key="n" />, 'Night', presetTime('night', lighting.latitude, lighting.dayOfYear), 'night']
+  ] as const
+  const tools: { k: HeroTool | 'draw' | 'measure' | 'undo' | 'redo'; label: string; icon: JSX.Element; run: () => void; disabled?: boolean; on?: boolean }[] = [
+    { k: 'select', label: 'Select', icon: <MousePointer2 />, run: () => runTool('select'), on: tool === 'select' },
+    { k: 'move', label: 'Move', icon: <Move />, run: () => runTool('move'), on: tool === 'move' },
+    { k: 'rotate', label: 'Rotate', icon: <RotateCw />, run: () => runTool('rotate'), on: tool === 'rotate' },
+    { k: 'resize', label: 'Resize', icon: <Scaling />, run: () => runTool('resize'), on: tool === 'resize' },
+    { k: 'draw', label: 'Draw / Sketch', icon: <PenLine />, run: () => {
+        if (!real) useSketch.getState().set({ mode: 'replace' })
+        else useSketch.getState().set({ mode: 'add', tool: 'pen' })
+        useUI.getState().set({ screen: 'workspace' })
+        setMode('sketch')
+      } },
+    { k: 'measure', label: 'Measure', icon: <Ruler />, run: () => {
+        if (!real) return useUI.getState().toast({ kind: 'info', title: 'Generate or open a house first' })
+        useUI.getState().set({ screen: 'workspace', tool: 'measure' })
+        setMode('plan')
+      } },
+    { k: 'undo', label: 'Undo', icon: <Undo2 />, run: () => useProject.getState().undo(), disabled: !canUndo },
+    { k: 'redo', label: 'Redo', icon: <Redo2 />, run: () => useProject.getState().redo(), disabled: !canRedo }
+  ]
   return (
     <section className="dash-hero">
-      <div ref={ref} className="dash-hero-canvas" />
+      <div ref={ref} className="dash-hero-canvas" onPointerDown={(e) => (down.current = { x: e.clientX, y: e.clientY })} onPointerUp={onUp} />
       {!project && (
         <div className="dash-hero-wait">
           <span className="spinner" /> Preparing a house to show you…
         </div>
       )}
-      <span className="hero-chip">3D view ({view === 'interior' ? 'interior' : view === 'top' ? 'top' : 'exterior'})</span>
+      <div className="hero-tools" role="toolbar" aria-label="3D tools">
+        {tools.map((t, i) => (
+          <button key={t.k} className={`${t.on ? 'on' : ''} ${i === 6 ? 'sep' : ''}`} disabled={t.disabled} onClick={t.run} aria-label={t.label} data-tip={t.label}>
+            {t.icon}
+            <span>{t.label}</span>
+          </button>
+        ))}
+      </div>
       <div className="hero-panel">
-        <div className="faint" style={{ fontSize: 11 }}>
-          View mode
+        <div className="hero-panel-label">View Mode</div>
+        <Seg
+          value={view}
+          onChange={(v) => {
+            setView(v)
+            setCam(v === 'exterior' ? 'drone' : '')
+          }}
+          options={[{ value: 'exterior', label: 'Exterior' }, { value: 'interior', label: 'Interior' }, { value: 'top', label: 'Top View' }]}
+        />
+        <div className="hero-panel-row">
+          <div className="grow">
+            <div className="hero-panel-label">Camera</div>
+            <select className="field" aria-label="Camera" value={cam} disabled={view === 'top'} onChange={(e) => setCam(e.target.value)}>
+              {view === 'interior'
+                ? rooms.map(({ f, r }) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name} ({f.name.toLowerCase()})
+                    </option>
+                  ))
+                : view === 'top'
+                  ? [<option key="t">Plan from above</option>]
+                  : EXT_CAMS.map((c) => (
+                      <option key={c.key} value={c.key}>
+                        {c.label}
+                      </option>
+                    ))}
+            </select>
+          </div>
+          <svg className="compass-rose" viewBox="-30 -30 60 60" aria-label="Compass" role="img">
+            <circle r="27" className="ring" />
+            <g transform={`rotate(${needle})`}>
+              <path d="M0,-19 L5,0 L0,4 L-5,0 Z" className="n" />
+              <path d="M0,19 L5,0 L0,-4 L-5,0 Z" className="s" />
+              <text y="-21.5">N</text>
+              <text x="22" y="1.5">E</text>
+              <text y="25">S</text>
+              <text x="-22" y="1.5">W</text>
+            </g>
+          </svg>
         </div>
-        <Seg value={view} onChange={setView} options={[{ value: 'orbit', label: 'Orbit' }, { value: 'exterior', label: 'Exterior' }, { value: 'interior', label: 'Interior' }, { value: 'top', label: 'Top' }]} />
-        <div className="row" style={{ gap: 6, marginTop: 8 }}>
-          <div className="seg">
-            {(
-              [
-                ['noon', <Sun key="d" />, 'Day'],
-                ['sunset', <Sunset key="s" />, 'Sunset'],
-                ['night', <Moon key="n" />, 'Night']
-              ] as const
-            ).map(([k, icon, label]) => (
-              <button key={k} className={lighting === k ? 'on' : ''} data-tip={real ? label : 'Generate a house first'} aria-label={label} onClick={() => setLight(k)}>
+        <div className="hero-panel-row">
+          <div className="seg hero-light">
+            {lights.map(([k, icon, label, time, preset]) => (
+              <button key={k} className={lightKey === k ? 'on' : ''} data-tip={label} aria-label={label} onClick={() => setLight(time, preset)}>
                 {icon}
               </button>
             ))}
           </div>
           <div className="grow" />
-          <span className="compass" data-tip="North" style={{ transform: `rotate(${na}deg)` }}>
-            <Compass size={18} />
-          </span>
+          <button className="icon-btn" aria-label="Photoreal render" data-tip="Photoreal render" onClick={() => useUI.getState().openDialog('photoreal')}>
+            <Aperture />
+          </button>
           <button className="icon-btn" aria-label="Open full 3D" data-tip="Open full 3D" disabled={!real} onClick={() => {
               useUI.getState().set({ screen: 'workspace' })
               setMode('3d')
@@ -527,6 +843,15 @@ function Hero({ project }: { project: Project | null }) {
           </button>
         </div>
       </div>
+      <span className="hero-chip">3D View ({view === 'exterior' ? 'Exterior' : view === 'interior' ? 'Interior' : 'Top'})</span>
+      {selLabel && (
+        <span className="hero-chip sel">
+          {selLabel} selected
+          <button className="link-btn" onClick={() => runTool('move', sel)}>
+            Edit in plan
+          </button>
+        </span>
+      )}
     </section>
   )
 }
@@ -536,9 +861,28 @@ function heroOptions(p: Project) {
   return { floorId: g.id, showAll: true, viewMode: 'realistic' as const, explodeGap: 0, doorsOpen: true, showFurniture: true, showStructure: true }
 }
 
+/* ── centre: plan tiles ──────────────────────────────────────────────────── */
+
+function TileZoom({ zoom, setZoom }: { zoom: number; setZoom: (z: number) => void }) {
+  return (
+    <div className="tile-zoom" onClick={(e) => e.stopPropagation()}>
+      <button aria-label="Zoom in" data-tip="Zoom in" onClick={() => setZoom(Math.min(3, zoom * 1.25))}>
+        <ZoomIn />
+      </button>
+      <button aria-label="Zoom out" data-tip="Zoom out" onClick={() => setZoom(Math.max(0.6, zoom / 1.25))}>
+        <ZoomOut />
+      </button>
+      <button aria-label="Fit" data-tip="Fit" onClick={() => setZoom(1)}>
+        <Scan />
+      </button>
+    </div>
+  )
+}
+
 function PlanTile({ project }: { project: Project | null }) {
   const ref = useRef<HTMLDivElement>(null)
   const [tick, setTick] = useState(0)
+  const [zoom, setZoom] = useState(1)
   useEffect(() => {
     const el = ref.current
     if (!el || !project) return
@@ -548,7 +892,7 @@ function PlanTile({ project }: { project: Project | null }) {
     let t = 0
     const w = Math.max(140, Math.min(r.width / fl.length, (r.height * project.plot.width) / Math.max(1, project.plot.depth) + 60))
     const canvases = fl.map((f) => {
-      const c = renderPlanToCanvas(project, f, w, Math.max(140, r.height), {
+      const c = renderPlanToCanvas(project, f, w * zoom, Math.max(140, r.height) * zoom, {
         theme: 'rendered',
         site: true,
         dpr: window.devicePixelRatio || 1,
@@ -558,18 +902,23 @@ function PlanTile({ project }: { project: Project | null }) {
           t = window.setTimeout(() => setTick((n) => n + 1), 120)
         }
       })
-      c.style.width = `${w}px`
-      c.style.height = '100%'
+      c.style.width = `${w * zoom}px`
+      c.style.height = `${Math.max(140, r.height) * zoom}px`
+      c.style.flex = 'none'
       return c
     })
     el.replaceChildren(...canvases)
+    // keep the middle of the drawing in view when zoomed
+    el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2
+    el.scrollTop = (el.scrollHeight - el.clientHeight) / 2
     return () => clearTimeout(t)
-  }, [project, tick])
+  }, [project, tick, zoom])
   const fl = project ? plansFor(project, 2.6) : []
   return (
     <section className="dash-tile" onClick={() => project && hasHouse(getProject()) && (useUI.getState().set({ screen: 'workspace' }), setMode('plan'))}>
-      <div ref={ref} className="dash-tile-img light" />
-      <span className="hero-chip">{fl.length > 1 ? `2D floor plans (${fl.map((f) => f.name.toLowerCase()).join(', ')})` : '2D floor plan (ground floor)'}</span>
+      <div ref={ref} className={`dash-tile-img light ${zoom > 1 ? 'scroll' : ''}`} />
+      <span className="hero-chip">{fl.length > 1 ? `2D Floor Plan (${fl.map((f) => f.name).join(' + ')})` : '2D Floor Plan (Ground Floor)'}</span>
+      <TileZoom zoom={zoom} setZoom={setZoom} />
     </section>
   )
 }
@@ -580,11 +929,12 @@ function plansFor(p: Project, aspect: number) {
   const g = fs.find((f) => f.level === 0) ?? fs[0]
   if (!g) return []
   const second = fs.find((f) => f.level === 1)
-  return second && p.plot.depth / Math.max(1, p.plot.width) * aspect > 2.2 ? [g, second] : [g]
+  return second && (p.plot.depth / Math.max(1, p.plot.width)) * aspect > 2.2 ? [g, second] : [g]
 }
 
 function CutawayTile({ project }: { project: Project | null }) {
   const [img, setImg] = useState<string | null>(null)
+  const [zoom, setZoom] = useState(1)
   useEffect(() => {
     if (!project) return
     let alive = true
@@ -593,7 +943,7 @@ function CutawayTile({ project }: { project: Project | null }) {
     const b = bbox(all.length ? all : project.plot.polygon)
     const el = floorElevations(project.floors, project.settings.plinthHeight).get(g.id) ?? 0
     const c = { x: b.x + b.w / 2, z: b.y + b.h / 2 }
-    const size = Math.max(b.w, b.h)
+    const size = Math.max(b.w, b.h) / zoom
     const t = setTimeout(() => {
       renderHouseImage(project, { width: 720, height: 420, viewMode: 'dollhouse', floorId: g.id, pose: { position: [c.x + size * 0.55, el + size * 0.95, c.z + size * 0.85], target: [c.x, el, c.z], fov: 42 } }).then((u) => alive && setImg(u))
     }, 600)
@@ -601,32 +951,42 @@ function CutawayTile({ project }: { project: Project | null }) {
       alive = false
       clearTimeout(t)
     }
-  }, [project])
+  }, [project, zoom])
   return (
     <section className="dash-tile" onClick={() => project && hasHouse(getProject()) && (useUI.getState().set({ screen: 'workspace', viewMode: 'dollhouse' }), setMode('3d'))}>
       <div className="dash-tile-img" style={img ? { backgroundImage: `url("${img}")` } : undefined}>
         {!img && <span className="spinner" />}
       </div>
-      <span className="hero-chip">3D floor plan (ground floor)</span>
+      <span className="hero-chip">3D Floor Plan (Ground Floor)</span>
+      <TileZoom zoom={zoom} setZoom={setZoom} />
     </section>
   )
 }
 
-function DesignStrip({ designs, activeId }: { designs: DesignOption[]; activeId?: string }) {
+/* ── centre: designs ─────────────────────────────────────────────────────── */
+
+function designTitle(d: DesignOption) {
+  return STYLE_TITLE[d.house.exterior.style] ?? d.name
+}
+
+function DesignStrip({ designs, activeId, shown }: { designs: DesignOption[]; activeId?: string; shown: Project | null }) {
   const [sort, setSort] = useState<'overall' | 'garden' | 'space' | 'privacy'>('overall')
   const list = [...designs].sort((a, b) => b.scores[sort] - a.scores[sort])
   const select = (d: DesignOption) => {
     const p = getProject()
-    if (!hasHouse(p)) useProject.getState().load(projectFromDesign(d, structuredClone(useWizard.getState().req), designs))
-    else applyDesignToProject(d)
-    useUI.getState().toast({ kind: 'success', title: `${d.label}: ${d.name}`, body: 'Now shown in 3D and in the plan.' })
+    if (!hasHouse(p)) {
+      const np = projectFromDesign(d, structuredClone(useWizard.getState().req), designs)
+      atEvening(np)
+      useProject.getState().load(np)
+    } else applyDesignToProject(d)
+    useUI.getState().toast({ kind: 'success', title: designTitle(d), body: `${d.name}. Now shown in 3D and in the plan.` })
   }
   return (
     <section className="dash-designs">
       <header>
-        <h3>Generated house designs</h3>
+        <h3>Generated House Designs</h3>
         <span className="faint" style={{ fontSize: 11 }}>
-          based on your requirements
+          (based on your requirements)
         </span>
         <div className="grow" />
         <label className="faint" style={{ fontSize: 12 }}>
@@ -643,9 +1003,9 @@ function DesignStrip({ designs, activeId }: { designs: DesignOption[]; activeId?
         {list.length ? (
           list.map((d) => <DesignCard key={d.id} d={d} on={d.id === activeId} onSelect={() => select(d)} />)
         ) : (
-          <div className="dash-empty">Set the house size and requirements on the left, then choose Generate possible designs. Five complete designs appear here.</div>
+          <div className="dash-empty">Set the house size and requirements on the left, then choose Generate possible designs. Five complete designs, each in its own style, appear here.</div>
         )}
-        <VideoCard />
+        <VideoCard shown={shown} />
       </div>
     </section>
   )
@@ -656,25 +1016,26 @@ function DesignCard({ d, on, onSelect }: { d: DesignOption; on: boolean; onSelec
   useEffect(() => {
     let alive = true
     const p = { ...newProject(), ...d.house } as Project
-    p.settings.lighting = { ...p.settings.lighting, preset: 'sunset', time: 17.4 }
+    // golden hour reads best at thumbnail size
+    p.settings.lighting = { ...p.settings.lighting, preset: 'sunset', time: presetTime('sunset', p.settings.lighting.latitude, p.settings.lighting.dayOfYear) }
     renderHouseImage(p, { width: 360, height: 220, view: 'street' }).then((u) => alive && setImg(u))
     return () => {
       alive = false
     }
   }, [d])
   const s = d.stats
+  const size = presetById(d.house.plot.presetId)?.label ?? formatAreaFor(area(d.house.plot.polygon), 'ft-in')
   return (
-    <article className={`dash-design ${on ? 'on' : ''}`}>
+    <article className={`dash-design ${on ? 'on' : ''}`} data-tip={d.name}>
       <div className="img" style={img ? { backgroundImage: `url("${img}")` } : undefined}>
         {!img && <span className="spinner" />}
         <span className="letter">{d.label}</span>
       </div>
       <div className="body">
-        <b>{d.name}</b>
+        <b>{designTitle(d)}</b>
         <span className="faint">
-          {s.floors} floors, {s.bedrooms} bed, {s.bathrooms} bath
+          {size} | {s.floors} Floors | {s.bedrooms} BHK
         </span>
-        <span className="faint">{formatAreaFor(s.totalFloorArea, 'ft-in')}</span>
         <button className={`btn sm ${on ? '' : 'primary'}`} onClick={onSelect} disabled={on}>
           {on ? 'Selected' : 'Select'}
         </button>
@@ -683,8 +1044,18 @@ function DesignCard({ d, on, onSelect }: { d: DesignOption; on: boolean; onSelec
   )
 }
 
-function VideoCard() {
+function VideoCard({ shown }: { shown: Project | null }) {
   const real = useProject((s) => hasHouse(s.project))
+  const [img, setImg] = useState<string | null>(null)
+  useEffect(() => {
+    if (!shown) return
+    let alive = true
+    const t = setTimeout(() => void renderHouseImage(shown, { width: 420, height: 260, view: 'aerial' }).then((u) => alive && setImg(u)), 1400)
+    return () => {
+      alive = false
+      clearTimeout(t)
+    }
+  }, [shown?.id, shown?.activeDesignId]) // eslint-disable-line react-hooks/exhaustive-deps
   const go = (route: DronePath) => {
     if (!real) return useUI.getState().toast({ kind: 'info', title: 'Generate or open a house first' })
     droneState.path = route
@@ -692,15 +1063,15 @@ function VideoCard() {
     setMode('drone')
   }
   return (
-    <article className="dash-video">
+    <article className="dash-video" style={img ? { backgroundImage: `linear-gradient(rgba(8,16,29,.25), rgba(8,16,29,.7)), url("${img}")` } : undefined}>
+      <span className="video-title">View This Design in Detail</span>
       <button className="play" onClick={() => go('full')} aria-label="Play the drone tour">
         <Play />
       </button>
-      <span>View this design in motion</span>
       <div className="seg">
-        <button onClick={() => go('exterior')}>Drone</button>
-        <button onClick={() => go('interior')}>Interior</button>
-        <button onClick={() => go('flyover')}>Flyover</button>
+        <button onClick={() => go('exterior')}>Drone Tour</button>
+        <button onClick={() => go('interior')}>Interior Tour</button>
+        <button onClick={() => go('flyover')}>Exterior Views</button>
       </div>
     </article>
   )
@@ -708,11 +1079,49 @@ function VideoCard() {
 
 /* ── right: finishes, customisation, sketch ──────────────────────────────── */
 
-const MAT_TABS: { key: string; label: string; cats: MaterialCategory[] }[] = [
-  { key: 'marble', label: 'Marble / Stone', cats: ['marble', 'granite', 'stone'] },
-  { key: 'wood', label: 'Wood', cats: ['wood'] },
-  { key: 'tiles', label: 'Tiles', cats: ['ceramic', 'porcelain'] },
-  { key: 'other', label: 'Others', cats: ['paint', 'wallpaper', 'concrete', 'brick', 'fabric'] }
+const SWATCHES: Record<string, { id: string; name: string }[]> = {
+  marble: [
+    { id: 'lib:marble-carrara', name: 'White Marble' },
+    { id: 'lib:marble-nero', name: 'Black Marble' },
+    { id: 'lib:marble-botticino', name: 'Beige Marble' },
+    { id: 'lib:stone-slate', name: 'Grey Stone' },
+    { id: 'lib:marble-emperador', name: 'Brown Marble' },
+    { id: 'lib:marble-verde', name: 'Green Marble' },
+    { id: 'lib:granite-black-galaxy', name: 'Granite' }
+  ],
+  wood: [
+    { id: 'lib:wood-oak', name: 'Natural Oak' },
+    { id: 'lib:wood-walnut', name: 'Walnut' },
+    { id: 'lib:wood-teak', name: 'Teak' },
+    { id: 'lib:wood-herringbone', name: 'Herringbone' },
+    { id: 'lib:wood-maple', name: 'Light Maple' },
+    { id: 'lib:wood-wenge', name: 'Wenge' },
+    { id: 'lib:porcelain-wood-look', name: 'Wood-look Tile' }
+  ],
+  tiles: [
+    { id: 'lib:porcelain-statuario', name: 'Statuario Slab' },
+    { id: 'lib:porcelain-ivory', name: 'Ivory Tile' },
+    { id: 'lib:ceramic-grey-matte', name: 'Grey Matte' },
+    { id: 'lib:porcelain-concrete-grey', name: 'Concrete Grey' },
+    { id: 'lib:porcelain-black-matte', name: 'Black Matte' },
+    { id: 'lib:ceramic-subway', name: 'Subway White' },
+    { id: 'lib:ceramic-moroccan', name: 'Moroccan' }
+  ],
+  other: [
+    { id: 'lib:paint-warm-white', name: 'Warm White' },
+    { id: 'lib:paint-greige', name: 'Greige Paint' },
+    { id: 'lib:paint-sage', name: 'Sage Green' },
+    { id: 'lib:wallpaper-linen', name: 'Linen Paper' },
+    { id: 'lib:wallpaper-damask', name: 'Damask' },
+    { id: 'lib:concrete-polished', name: 'Polished Concrete' },
+    { id: 'lib:terrazzo-classic', name: 'Terrazzo' }
+  ]
+}
+const MAT_TABS = [
+  { key: 'marble', label: 'Marble / Stone' },
+  { key: 'wood', label: 'Wood' },
+  { key: 'tiles', label: 'Tiles' },
+  { key: 'other', label: 'Others' }
 ]
 
 interface RoomPick {
@@ -720,12 +1129,11 @@ interface RoomPick {
   r: Room
 }
 
-function FinishesPanel(props: { project: Project | null; view: Project | null; current?: RoomPick; rooms: RoomPick[]; setRoomId: (id: string) => void }) {
+function FinishesPanel(props: { project: Project | null; view: Project | null; current?: RoomPick }) {
   const [tab, setTab] = useState('marble')
   const [surface, setSurface] = useState<'floor' | 'walls'>('floor')
   const [preview, setPreview] = useState<string | null>(null)
   const file = useRef<HTMLInputElement>(null)
-  const list = LIBRARY.filter((m) => MAT_TABS.find((t) => t.key === tab)!.cats.includes(m.category)).slice(0, 11)
   const cur = props.current
   const apply = (id: string, name: string) => {
     if (!props.project || !cur) {
@@ -738,6 +1146,11 @@ function FinishesPanel(props: { project: Project | null; view: Project | null; c
       else r.wallMaterial = id
     })
   }
+  const changeMaterial = () => {
+    if (!props.project || !cur) return useUI.getState().toast({ kind: 'info', title: 'Generate or open a house first' })
+    useUI.getState().set({ screen: 'workspace', floorId: cur.f.id, selection: [{ kind: 'room', id: cur.r.id, floorId: cur.f.id }], surface: surface === 'floor' ? { kind: 'roomFloor', floorId: cur.f.id, roomId: cur.r.id } : null })
+    setMode('materials')
+  }
   // interior preview of the chosen room, refreshed after finishes change
   const sig = cur ? `${cur.r.id}|${cur.r.floorMaterial}|${cur.r.wallMaterial}|${cur.r.ceilingType}` : ''
   useEffect(() => {
@@ -747,17 +1160,22 @@ function FinishesPanel(props: { project: Project | null; view: Project | null; c
     const b = bbox(cur.r.polygon)
     const y = (floorElevations(v.floors, v.settings.plinthHeight).get(cur.f.id) ?? 0) + 1.5
     const t = setTimeout(() => {
-      renderHouseImage(props.project ? getProject() : v, { width: 640, height: 300, floorId: cur.f.id, pose: { position: [b.x + Math.min(0.5, b.w * 0.12), y, b.y + Math.min(0.5, b.h * 0.12)], target: [b.x + b.w * 0.85, y - 0.35, b.y + b.h * 0.85], fov: 70 } }).then((u) => alive && setPreview(u))
+      // finishes are judged in daylight, whatever time the hero shows
+      const src = props.project ? getProject() : v
+      const day = { ...src, settings: { ...src.settings, lighting: { ...src.settings.lighting, preset: 'afternoon' as const, time: 14.5 } } }
+      renderHouseImage(day, { width: 640, height: 300, floorId: cur.f.id, pose: { position: [b.x + Math.min(0.5, b.w * 0.12), y, b.y + Math.min(0.5, b.h * 0.12)], target: [b.x + b.w * 0.85, y - 0.35, b.y + b.h * 0.85], fov: 70 } }).then((u) => alive && setPreview(u))
     }, 700)
     return () => {
       alive = false
       clearTimeout(t)
     }
   }, [sig, props.view?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  const curId = cur ? (surface === 'floor' ? (cur.r.floorMaterial ?? spec(cur.r.type).floorFinish) : (cur.r.wallMaterial ?? spec(cur.r.type).wallFinish)) : undefined
   return (
     <section className="dash-card">
       <header>
-        <h3>Materials and finishes</h3>
+        <h3>Materials &amp; Finishes</h3>
+        <Seg value={surface} onChange={setSurface} options={[{ value: 'floor', label: 'Floor' }, { value: 'walls', label: 'Walls' }]} />
       </header>
       <div className="dock-tabs">
         {MAT_TABS.map((t) => (
@@ -767,14 +1185,14 @@ function FinishesPanel(props: { project: Project | null; view: Project | null; c
         ))}
       </div>
       <div className="fin-grid">
-        {list.map((m) => (
-          <FinSwatch key={m.id} m={m} on={cur ? (surface === 'floor' ? cur.r.floorMaterial : cur.r.wallMaterial) === m.id : false} onClick={() => apply(m.id, m.name)} />
+        {SWATCHES[tab].map((s) => (
+          <FinSwatch key={s.id} id={s.id} name={s.name} on={curId === s.id} onClick={() => apply(s.id, s.name)} />
         ))}
         <button className="fin-swatch upload" onClick={() => file.current?.click()} data-tip="Upload your own photo">
           <span className="img">
             <Upload />
           </span>
-          <span className="n">Custom upload</span>
+          <span className="n">Custom Upload</span>
         </button>
         <input ref={file} type="file" accept="image/*" hidden onChange={async (e) => {
             const f = [...(e.target.files ?? [])]
@@ -792,51 +1210,61 @@ function FinishesPanel(props: { project: Project | null; view: Project | null; c
       <div className="fin-preview" style={preview ? { backgroundImage: `url("${preview}")` } : undefined}>
         {!preview && props.view && <span className="spinner" />}
         <div className="fin-foot">
-          <span>
-            Applied to:{' '}
-            <select className="field" value={cur?.r.id ?? ''} onChange={(e) => props.setRoomId(e.target.value)} aria-label="Room">
-              {props.rooms.map(({ f, r }) => (
-                <option key={r.id} value={r.id}>
-                  {r.name} ({f.name.toLowerCase()})
-                </option>
-              ))}
-            </select>
+          <span className="applied">
+            Applied to: <b>{cur ? `${cur.r.name} ${surface === 'floor' ? 'Floor' : 'Walls'}` : '—'}</b>
           </span>
-          <Seg value={surface} onChange={setSurface} options={[{ value: 'floor', label: 'Floor' }, { value: 'walls', label: 'Walls' }]} />
+          <button className="btn sm" onClick={changeMaterial}>
+            Change Material
+          </button>
         </div>
       </div>
     </section>
   )
 }
 
-function FinSwatch({ m, on, onClick }: { m: MaterialDef; on: boolean; onClick: () => void }) {
+function FinSwatch({ id, name, on, onClick }: { id: string; name: string; on: boolean; onClick: () => void }) {
+  const m = resolveMaterial(id, [])
   const url = useMaterialThumb(m)
   return (
-    <button className={`fin-swatch ${on ? 'on' : ''}`} onClick={onClick} data-tip={`Apply ${m.name}`}>
-      <span className="img" style={thumbStyle(m, url)} />
-      <span className="n">{m.name}</span>
+    <button className={`fin-swatch ${on ? 'on' : ''}`} onClick={onClick} data-tip={`${m?.name ?? name}: apply`} aria-label={`Apply ${name}`}>
+      <span className="img" style={m ? thumbStyle(m, url) : undefined} />
+      <span className="n">{name}</span>
     </button>
   )
 }
 
-const STYLES: { key: string; label: string; luxury: number }[] = [
+const FURNITURE_STYLES: { key: string; label: string; luxury: number }[] = [
   { key: 'modern', label: 'Modern', luxury: 60 },
   { key: 'luxury', label: 'Luxury', luxury: 90 },
   { key: 'minimal', label: 'Minimal', luxury: 20 }
 ]
+const CEILINGS: { v: NonNullable<Room['ceilingType']>; label: string }[] = [
+  { v: 'flat', label: 'Flat Ceiling' },
+  { v: 'false-ceiling', label: 'False Ceiling' },
+  { v: 'cove', label: 'Cove Lighting' }
+]
 
-function CustomizePanel({ project, current }: { project: Project | null; current?: RoomPick }) {
+function CustomizePanel({ project, view, current, rooms, setRoomId }: { project: Project | null; view: Project | null; current?: RoomPick; rooms: RoomPick[]; setRoomId: (id: string) => void }) {
   const [style, setStyle] = useState('modern')
   const b = current ? bbox(current.r.polygon) : { w: 4, h: 4 }
   const height0 = current ? (current.r.ceilingHeight ?? current.f.height - current.f.slabThickness) : 3
   const [dims, setDims] = useState({ l: b.h, w: b.w, h: height0 })
   useEffect(() => setDims({ l: b.h, w: b.w, h: height0 }), [current?.r.id, b.w, b.h, height0]) // eslint-disable-line react-hooks/exhaustive-deps
-  if (!project || !current) return null
-  const u = project.settings.units
+  const shownProject = project ?? view
+  if (!shownProject || !current) return null
+  // the sample house is for looking at: edits ask for a house of the user's own
+  const sampleOnly = () => {
+    useUI.getState().toast({ kind: 'info', title: 'This is a sample house', body: 'Generate or open your own house to customise its rooms.' })
+  }
+  const u: UnitSystem = metric(shownProject.settings.units) ? 'm' : 'ft'
   const sp = spec(current.r.type)
-  const up = (label: string, fn: (r: Room) => void) => commit(label, (d) => fn(d.floors.find((f) => f.id === current.f.id)!.rooms.find((x) => x.id === current.r.id)!))
+  const up = (label: string, fn: (r: Room) => void) => {
+    if (!project) return void sampleOnly()
+    commit(label, (d) => fn(d.floors.find((f) => f.id === current.f.id)!.rooms.find((x) => x.id === current.r.id)!))
+  }
   const changed = Math.abs(dims.l - b.h) > 0.01 || Math.abs(dims.w - b.w) > 0.01 || Math.abs(dims.h - height0) > 0.01
   const applyDims = () => {
+    if (!project) return void sampleOnly()
     commit(`Resize ${current.r.name}`, (d) => {
       const f = d.floors.find((x) => x.id === current.f.id)!
       if (Math.abs(dims.w - b.w) > 0.01) setRoomSize(f as never, current.r.id, 'x', dims.w, d.settings)
@@ -845,48 +1273,65 @@ function CustomizePanel({ project, current }: { project: Project | null; current
       if (r && Math.abs(dims.h - height0) > 0.01) r.ceilingHeight = dims.h
     })
   }
+  const ceilingThumb = current.r.ceilingType === 'cove' ? 'cove' : current.r.ceilingType === 'false-ceiling' ? 'false' : 'flat'
   return (
     <>
       <section className="dash-card">
         <header>
-          <h3>Room customization</h3>
-          <span className="sub">{current.r.name}</span>
+          <h3>Room Customization</h3>
         </header>
-        <div className="req-row">
-          <span>Flooring</span>
-          <MaterialPicker project={project} value={current.r.floorMaterial} fallback={sp.floorFinish} onChange={(id) => up('Flooring', (r) => void (r.floorMaterial = id))} />
-        </div>
-        <div className="req-row">
-          <span>Wall finish</span>
-          <MaterialPicker project={project} value={current.r.wallMaterial} fallback={sp.wallFinish} onChange={(id) => up('Wall finish', (r) => void (r.wallMaterial = id))} />
-        </div>
-        <div className="req-row">
-          <span>Ceiling</span>
-          <select className="field" value={current.r.ceilingType ?? 'flat'} onChange={(e) => up('Ceiling design', (r) => void (r.ceilingType = e.target.value as Room['ceilingType']))}>
-            <option value="flat">Flat ceiling</option>
-            <option value="false-ceiling">False ceiling</option>
-            <option value="cove">Cove lighting ceiling</option>
+        <div className="room-pick">
+          <BedDouble size={16} />
+          <select className="field" aria-label="Room to customize" value={current.r.id} onChange={(e) => setRoomId(e.target.value)}>
+            {rooms.map(({ f, r }) => (
+              <option key={r.id} value={r.id}>
+                {r.name} ({f.name.toLowerCase()})
+              </option>
+            ))}
           </select>
         </div>
         <div className="req-row">
-          <span>Furniture style</span>
+          <span>Flooring</span>
+          <MaterialPicker project={shownProject} value={current.r.floorMaterial} fallback={sp.floorFinish} onChange={(id) => up('Flooring', (r) => void (r.floorMaterial = id))} />
+        </div>
+        <div className="req-row">
+          <span>Wall Finish</span>
+          <MaterialPicker project={shownProject} value={current.r.wallMaterial} fallback={sp.wallFinish} onChange={(id) => up('Wall finish', (r) => void (r.wallMaterial = id))} />
+        </div>
+        <div className="req-row thumb-row">
+          <span>Ceiling Design</span>
+          <select className="field" value={current.r.ceilingType ?? 'flat'} onChange={(e) => up('Ceiling design', (r) => void (r.ceilingType = e.target.value as Room['ceilingType']))}>
+            {CEILINGS.map((c) => (
+              <option key={c.v} value={c.v}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+          <span className={`ceil-thumb ${ceilingThumb}`} aria-hidden />
+        </div>
+        <div className="req-row thumb-row">
+          <span>Furniture Style</span>
           <select className="field" value={style} onChange={(e) => {
+              if (!project) return void sampleOnly()
               setStyle(e.target.value)
-              const lux = STYLES.find((s) => s.key === e.target.value)!.luxury
+              const lux = FURNITURE_STYLES.find((s) => s.key === e.target.value)!.luxury
               commit(`Furnish ${current.r.name} (${e.target.value})`, (d) => refurnishRoom(d.floors.find((f) => f.id === current.f.id)! as never, current.r.id, lux, qiblaVector(d.plot)))
             }}>
-            {STYLES.map((s) => (
+            {FURNITURE_STYLES.map((s) => (
               <option key={s.key} value={s.key}>
                 {s.label}
               </option>
             ))}
           </select>
+          <span className={`furn-thumb ${style}`} aria-hidden />
         </div>
       </section>
-      <section className="dash-card">
+      <section className="dash-card dims-card">
         <header>
-          <h3>Adjust dimensions</h3>
-          <span className="sub">{formatAreaFor(dims.l * dims.w, u)}</span>
+          <h3>Adjust Dimensions</h3>
+          <span className="sub">
+            {current.r.name}, {formatAreaFor(dims.l * dims.w, shownProject.settings.units)}
+          </span>
         </header>
         {(
           [
@@ -896,9 +1341,23 @@ function CustomizePanel({ project, current }: { project: Project | null; current
           ] as const
         ).map(([k, label, min, max]) => (
           <div key={k} className="dim-slider">
-            <span>{label}</span>
+            <span>
+              {label} ({u === 'm' ? 'm' : 'ft'})
+            </span>
             <Slider value={dims[k]} min={min} max={max} step={0.05} label={label} onChange={(v) => setDims((d) => ({ ...d, [k]: v }))} />
-            <span className="tabular">{formatLength(dims[k], u, { compact: true })}</span>
+            <input
+              className="field dim-num tabular"
+              type="number"
+              aria-label={`${label} in ${u === 'm' ? 'metres' : 'feet'}`}
+              step={u === 'm' ? 0.1 : 0.5}
+              value={Math.round(num(dims[k], u) * 10) / 10}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                if (!Number.isFinite(v) || v <= 0) return
+                const m = u === 'm' ? v : v * FT
+                setDims((d) => ({ ...d, [k]: Math.max(min * 0.5, Math.min(max * 1.5, m)) }))
+              }}
+            />
           </div>
         ))}
         <button className="btn primary" style={{ width: '100%', marginTop: 6 }} disabled={!changed} onClick={applyDims}>
@@ -910,33 +1369,27 @@ function CustomizePanel({ project, current }: { project: Project | null; current
 }
 
 function SketchTools() {
-  const open = (tool: 'pen' | 'eraser' | 'text' | 'pan', mode: 'add' | 'replace' = 'add') => {
+  const open = (tool: 'pen' | 'rect' | 'circle' | 'eraser' | 'text') => {
     const real = hasHouse(getProject())
-    useSketch.getState().set({ tool, mode: real ? mode : 'replace' })
+    useSketch.getState().set({ tool, mode: real ? 'add' : 'replace' })
     useUI.getState().set({ screen: 'workspace' })
     setMode('sketch')
   }
-  const tools: { label: string; icon: JSX.Element; run: () => void }[] = [
-    { label: 'Free draw', icon: <Pencil />, run: () => open('pen') },
-    { label: 'Rectangle', icon: <Square />, run: () => {
-        useUI.getState().set({ screen: 'workspace', tool: 'room', toolOption: 'bedroom' })
-        setMode('plan')
-      } },
-    { label: 'Measure', icon: <Ruler />, run: () => {
-        useUI.getState().set({ screen: 'workspace', tool: 'measure' })
-        setMode('plan')
-      } },
-    { label: 'Text', icon: <Type />, run: () => open('text') },
-    { label: 'Erase', icon: <Eraser />, run: () => open('eraser') }
+  const tools: { label: string; icon: JSX.Element; tip: string; run: () => void }[] = [
+    { label: 'Free Draw', icon: <Pencil />, tip: 'Draw walls and rooms by hand', run: () => open('pen') },
+    { label: 'Rectangle', icon: <Square />, tip: 'Drag out a room', run: () => open('rect') },
+    { label: 'Circle', icon: <Circle />, tip: 'A small circle becomes a round pillar', run: () => open('circle') },
+    { label: 'Text', icon: <Type />, tip: 'Label a room, e.g. "Kitchen" or "12x14"', run: () => open('text') },
+    { label: 'Erase', icon: <Eraser />, tip: 'Rub out strokes and labels', run: () => open('eraser') }
   ]
   return (
     <section className="dash-card">
       <header>
-        <h3>Sketch tools</h3>
+        <h3>Sketch Tools</h3>
       </header>
       <div className="sketch-tools">
         {tools.map((t) => (
-          <button key={t.label} onClick={t.run}>
+          <button key={t.label} onClick={t.run} data-tip={t.tip}>
             {t.icon}
             <span>{t.label}</span>
           </button>
@@ -956,18 +1409,18 @@ function FeatureRow() {
     setMode(mode)
   }
   const features: { title: string; text: string; icon: JSX.Element; run: () => void }[] = [
-    { title: 'Design your home', text: 'Plot, floors, rooms and preferences, step by step.', icon: <PencilRuler />, run: () => useUI.getState().set({ screen: 'wizard' }) },
-    { title: 'Upload materials', text: 'Your own marble, stone or tile photos in 3D.', icon: <ImageIcon />, run: () => go('materials') },
-    { title: 'Generate designs', text: 'Five complete layouts from your requirements.', icon: <Sparkles />, run: () => useUI.getState().set({ screen: 'wizard' }) },
-    { title: '3D visualization', text: 'Day, sunset and night, inside and out.', icon: <Box />, run: () => go('3d') },
-    { title: 'Sketch and plan', text: 'Draw by hand; it becomes a clean plan.', icon: <PenLine />, run: () => go('sketch') },
-    { title: 'Video tour', text: 'Drone flights and walkthroughs, exportable.', icon: <Video />, run: () => go('drone') },
-    { title: 'Edit and customize', text: 'Resize rooms, move walls, change anything.', icon: <Layers3 />, run: () => go('plan') },
-    { title: 'Save and export', text: 'Drawings, images, 3D model, presentation.', icon: <Share2 />, run: () => (real ? useUI.getState().openDialog('export') : go('plan')) }
+    { title: 'Design Your Home', text: 'Adjust length, width, height, rooms, floors, etc.', icon: <PencilRuler />, run: () => useUI.getState().set({ screen: 'wizard' }) },
+    { title: 'Upload Materials', text: 'Use your own marble, stone or tiles and see 3D results.', icon: <ImageIcon />, run: () => go('materials') },
+    { title: 'Generate Designs', text: 'Get several house designs based on your requirements.', icon: <Sparkles />, run: () => useUI.getState().set({ screen: 'wizard' }) },
+    { title: '3D Visualization', text: 'See your design in 3D, interior and exterior.', icon: <Box />, run: () => go('3d') },
+    { title: 'Sketch & Plan', text: 'Draw your own sketches and convert them to 3D.', icon: <PenLine />, run: () => go('sketch') },
+    { title: 'Video Tour', text: 'Explore with drone views and walkthroughs.', icon: <Video />, run: () => go('drone') },
+    { title: 'Edit & Customize', text: 'Resize, change materials, move walls, add features.', icon: <Layers3 />, run: () => go('plan') },
+    { title: 'Save & Export', text: 'Save your design, download plans or share.', icon: <Share2 />, run: () => (real ? useUI.getState().openDialog('export') : go('plan')) }
   ]
   return (
     <footer className="dash-features">
-      <h4>Key features</h4>
+      <h4>Key Features of This App</h4>
       <div className="dash-feature-row">
         {features.map((f) => (
           <button key={f.title} className="dash-feature" onClick={f.run}>
@@ -1018,6 +1471,9 @@ function ProjectsDialog({ onClose }: { onClose: () => void }) {
             <Save size={14} /> Save current
           </button>
         )}
+        <button className="btn ghost" onClick={() => useUI.getState().openDialog('shortcuts')}>
+          <Keyboard size={14} /> Shortcuts
+        </button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
         <div>
@@ -1070,7 +1526,6 @@ function ProjectsDialog({ onClose }: { onClose: () => void }) {
         </div>
       </div>
       <p className="faint" style={{ fontSize: 11, marginTop: 12 }}>
-        {area(getProject().plot.polygon) > 0 ? '' : ''}
         {PLOT_PRESETS.length} plot sizes available, from 3 marla to 4 kanal.
       </p>
     </Modal>

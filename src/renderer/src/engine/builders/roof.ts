@@ -20,7 +20,8 @@ export function buildPitchedRoof(h: HouseState, mats: MaterialManager, plinth: n
   const mb = new MeshBuilder()
   const roofMat = mats.get(ext.roofMaterial, 'double')
   const gableMat = mats.get(ext.facadeMaterial, 'double')
-  const ov = 0.55
+  // deep eaves read as a real roof; hip roofs sit lower so square plans do not become pyramids
+  const ov = ext.roofType === 'hip' ? 0.85 : 0.6
   for (const p of polys) {
     const b = bbox(p.outer)
     const x0 = b.x - ov
@@ -29,7 +30,7 @@ export function buildPitchedRoof(h: HouseState, mats: MaterialManager, plinth: n
     const z1 = b.y + b.h + ov
     const alongX = b.w >= b.h
     const span = alongX ? z1 - z0 : x1 - x0
-    const pitch = ext.roofType === 'shed' ? 0.25 : 0.55
+    const pitch = ext.roofType === 'shed' ? 0.25 : ext.roofType === 'hip' ? 0.42 : 0.55
     const rise = (span / 2) * pitch
     const y = base
     const v = (x: number, yy: number, z: number): V3 => [x, yy, z]
@@ -91,11 +92,12 @@ export function buildPitchedRoof(h: HouseState, mats: MaterialManager, plinth: n
         mb.face([v(x1, y, z1), v(x0, y, z1), v(xm, y + rise, r1)], [[x1, y], [x0, y], [xm, y + rise]])
       }
     }
-    // soffit / eaves
-    mb.use(mats.get('lib:paint-warm-white', 'double'), { kind: 'roof' })
+    // soffit under the eaves (timber when the facade carries timber cladding) and a deep fascia
+    const timber = ext.accent2?.material.includes('wood') ? ext.accent2.material : ext.accentMaterial.includes('wood') ? ext.accentMaterial : null
+    mb.use(mats.get(timber ?? 'lib:paint-warm-white', 'double'), { kind: 'roof' })
     mb.hPoly([{ x: x0, y: z0 }, { x: x1, y: z0 }, { x: x1, y: z1 }, { x: x0, y: z1 }], y - 0.01, false, [p.outer])
     mb.use(mats.get('lib:paint-charcoal'), { kind: 'roof' })
-    mb.extrudeSides([{ x: x0, y: z0 }, { x: x1, y: z0 }, { x: x1, y: z1 }, { x: x0, y: z1 }], y - 0.18, y)
+    mb.extrudeSides([{ x: x0, y: z0 }, { x: x1, y: z0 }, { x: x1, y: z1 }, { x: x0, y: z1 }], y - 0.26, y + 0.04)
   }
   return mb.build('pitched-roof')
 }

@@ -397,7 +397,9 @@ export class Engine {
     this.sun.intensity = night >= 1 ? 0 : (1 - night) * (1.4 + Math.min(1, d.altitude / 40) * 2.4)
     this.sun.visible = this.sun.intensity > 0.01
     // the sky environment map already supplies daylight ambient; the hemisphere only fills in
-    this.hemi.intensity = 0.12 + (1 - night) * 0.38
+    // blue-hour fill: dusk keeps a cool ambient so lawns and walls stay readable
+    const dusk = Math.max(0, 1 - Math.abs(night - 0.55) / 0.45)
+    this.hemi.intensity = 0.12 + (1 - night) * 0.38 + dusk * 0.32 + night * 0.08
     this.hemi.color.set(night > 0.5 ? '#3a4a6a' : '#dfe9f5')
     this.hemi.groundColor.set(night > 0.5 ? '#1a1a1e' : '#6b6a58')
     this.sky.update(new THREE.Vector3(d.x, d.y, d.z), warm, night)
@@ -407,13 +409,14 @@ export class Engine {
     ;(this.stars.material as THREE.PointsMaterial).opacity = Math.max(0, night - 0.4)
     const fogColor = new THREE.Color().setHSL(0.58, 0.25, 0.8 - night * 0.72)
     ;(this.scene.fog as THREE.Fog).color = fogColor
-    this.renderer.toneMappingExposure = this.options.viewMode === 'architectural' ? 1.05 : 0.84 + night * 0.06
+    this.renderer.toneMappingExposure = this.options.viewMode === 'architectural' ? 1.05 : 0.84 + night * 0.22 + dusk * 0.2
     this.updateSkyEnvironment(night)
     if (this.bloom) this.bloom.strength = 0.04 + night * 0.32
     // emissive fixtures glow at night
     const lightsOn = L.interiorLights
     const glow = 0.15 + night * 1.1
-    const windowGlow = lightsOn ? Math.max(0, night - 0.15) * 2.2 : 0
+    // lit rooms read through the glass from dusk onwards
+    const windowGlow = lightsOn ? Math.min(3.2, Math.max(0, night - 0.05) * 3.4) : 0
     this.root.traverse((o) => {
       const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[] | undefined
       for (const m of Array.isArray(mm) ? mm : mm ? [mm] : []) {
@@ -520,7 +523,7 @@ export class Engine {
       for (const l of this.site.build.lights) {
         if (ext >= Math.ceil(budget / 2)) break
         if (l.kind === 'wash') {
-          const s = new THREE.SpotLight(extColor, 11 * night, 8, 0.45, 0.7, 1.6)
+          const s = new THREE.SpotLight(extColor, 16 * night, 9, 0.5, 0.75, 1.5)
           s.position.copy(l.p)
           s.target.position.copy(l.p).add(new THREE.Vector3(0, 5, -0.8))
           this.nightLights.add(s, s.target)

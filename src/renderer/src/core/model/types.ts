@@ -401,6 +401,8 @@ export interface Exterior {
   accentMaterial: ID
   /** Where the accent cladding goes. */
   accent: 'none' | 'front-feature' | 'entrance' | 'stair-tower' | 'ground-floor'
+  /** A second cladding (e.g. wood feature panels above a stone ground floor); the first accent wins where both apply. */
+  accent2?: { material: ID; placement: Exterior['accent'] }
   plinthMaterial: ID
   roofType: RoofType
   roofMaterial: ID
@@ -409,6 +411,8 @@ export interface Exterior {
   /** Multiplies generated window widths (facade editing). */
   windowScale: number
   entranceCanopy: boolean
+  /** Two pillars under the entrance canopy, shaped by `columnStyle`. */
+  entrancePillars?: boolean
   columnStyle: 'square' | 'round' | 'classical'
   lighting: {
     facadeWash: boolean
@@ -640,6 +644,8 @@ export interface SpecialRequirements {
   basement: boolean
   doubleHeightLounge: boolean
   doubleHeightEntrance: boolean
+  /** Pillars carrying the entrance canopy (porch columns). */
+  pillars?: boolean
   centralCourtyard: boolean
   largeWindows: boolean
   skylight: boolean

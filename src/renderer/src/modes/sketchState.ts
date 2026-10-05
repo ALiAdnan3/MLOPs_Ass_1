@@ -2,12 +2,12 @@ import { create } from 'zustand'
 import type { Floor, RoomType, Vec2 } from '../core/model/types'
 import { area, overlapArea } from '../core/geometry/polygon'
 import type { InkStroke, RecognizedPlan, TextMark } from '../ai/sketchRecognizer'
-import { recognize, vectorizeStrokes, segmentsFromImage } from '../ai/sketchRecognizer'
+import { recognize, vectorizeStrokes, segmentsFromImage, circleOf } from '../ai/sketchRecognizer'
 import type { Seg } from '../core/geometry/planar'
 
 /** Sketch mode state shared by the drawing surface and its side panel (§19, §20). */
 
-export type SketchTool = 'pen' | 'eraser' | 'text' | 'pan'
+export type SketchTool = 'pen' | 'rect' | 'circle' | 'eraser' | 'text' | 'pan'
 
 export interface SketchImage {
   url: string
@@ -75,7 +75,9 @@ export const useSketch = create<SketchState>((set, get) => ({
 /** Run recognition on the current ink (and imported sketch image, if any). */
 export function runRecognition(floor?: Floor): RecognizedPlan {
   const st = useSketch.getState()
-  const { segs, arcs } = vectorizeStrokes(st.strokes)
+  // small round loops are pillars, not walls
+  const circles = st.strokes.map((s) => ({ s, c: circleOf(s) }))
+  const { segs, arcs } = vectorizeStrokes(circles.filter((x) => !x.c).map((x) => x.s))
   const all: Seg[] = [...segs]
   // adding to a floor: existing room edges are exact anchors the new lines snap to
   const anchors: Seg[] = st.mode === 'add' && floor ? floor.rooms.flatMap((r) => r.polygon.map((p, i) => ({ a: p, b: r.polygon[(i + 1) % r.polygon.length] }))) : []
@@ -87,7 +89,7 @@ export function runRecognition(floor?: Floor): RecognizedPlan {
     all.push(...im.segs.map((s) => ({ a: T(s.a), b: T(s.b) })))
     thin = im.thin.map((s) => ({ a: T(s.a), b: T(s.b) }))
   }
-  const result = recognize(all, { tol: st.image ? Math.max(0.2, st.image.mpp * 8) : 0.35, arcs, texts: st.texts, noScale: anchors.length > 0, windowMarks: thin.filter((s) => Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y) > 0.5) })
+  const result = recognize(all, { tol: st.image ? Math.max(0.2, st.image.mpp * 8) : 0.35, arcs, texts: st.texts, circles: circles.flatMap((x) => (x.c ? [x.c] : [])), noScale: anchors.length > 0, windowMarks: thin.filter((s) => Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y) > 0.5) })
   if (anchors.length && floor) {
     // keep only genuinely new rooms (faces that are not existing rooms)
     const olds = floor.rooms.map((r) => r.polygon)

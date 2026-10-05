@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { claudeVisionAvailable, readPlanWithClaude, sketchSnapshot, textsFromReading } from '../ai/readPlan'
-import { PenLine, Eraser, Type, Hand, Undo2, Trash2, ScanLine, ImagePlus, Box, Map as MapIcon, Wand2 } from 'lucide-react'
+import { PenLine, Eraser, Type, Hand, Undo2, Trash2, ScanLine, ImagePlus, Box, Map as MapIcon, Wand2, Square, Circle } from 'lucide-react'
 import { useSketch, runRecognition, type SketchTool } from './sketchState'
 import { useProject, commit, getProject } from '../state/store'
 import { useUI } from '../state/ui'
@@ -45,6 +45,8 @@ export function SketchPanel() {
   const file = useRef<HTMLInputElement>(null)
   const tools: { k: SketchTool; label: string; icon: JSX.Element }[] = [
     { k: 'pen', label: 'Pen', icon: <PenLine /> },
+    { k: 'rect', label: 'Rectangle', icon: <Square /> },
+    { k: 'circle', label: 'Circle (pillar)', icon: <Circle /> },
     { k: 'eraser', label: 'Eraser', icon: <Eraser /> },
     { k: 'text', label: 'Label', icon: <Type /> },
     { k: 'pan', label: 'Pan', icon: <Hand /> }

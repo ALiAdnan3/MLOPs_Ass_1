@@ -333,7 +333,26 @@ export function SketchView() {
       live.current = { pts: [w], pressure: [] }
       return
     }
+    if (st.tool === 'rect' || st.tool === 'circle') {
+      shapeStart.current = w
+      live.current = { pts: [w], pressure: [] }
+      return
+    }
     live.current = { pts: [w], pressure: [e.pressure || 0.5] }
+  }
+  const shapeStart = useRef<Vec2 | null>(null)
+  /** Outline for the rectangle / circle tools, from the press point to the pointer. */
+  const shapePts = (a: Vec2, b: Vec2): Vec2[] => {
+    if (st.tool === 'rect')
+      return [
+        { x: a.x, y: a.y },
+        { x: b.x, y: a.y },
+        { x: b.x, y: b.y },
+        { x: a.x, y: b.y },
+        { x: a.x, y: a.y }
+      ]
+    const r = Math.hypot(b.x - a.x, b.y - a.y)
+    return Array.from({ length: 41 }, (_, i) => ({ x: a.x + r * Math.cos((i / 40) * Math.PI * 2), y: a.y + r * Math.sin((i / 40) * Math.PI * 2) }))
   }
   const erase = (w: Vec2) => {
     const s = useSketch.getState()
@@ -353,6 +372,11 @@ export function SketchView() {
     const w = toW(sp)
     if (st.tool === 'eraser') {
       erase(w)
+      return
+    }
+    if (shapeStart.current) {
+      live.current.pts = shapePts(shapeStart.current, w)
+      force((n) => n + 1)
       return
     }
     const last = live.current.pts[live.current.pts.length - 1]
@@ -376,6 +400,14 @@ export function SketchView() {
     const l = live.current
     live.current = null
     if (!l || st.tool === 'eraser') return
+    const start = shapeStart.current
+    shapeStart.current = null
+    if (start) {
+      const end = l.pts[2] ?? l.pts[l.pts.length - 1]
+      const big = st.tool === 'rect' ? Math.abs(end.x - start.x) > 0.3 && Math.abs(end.y - start.y) > 0.3 : l.pts.length > 8 && Math.hypot(l.pts[0].x - start.x, l.pts[0].y - start.y) > 0.08
+      if (big) useSketch.getState().addStroke({ pts: l.pts, shape: st.tool === 'rect' ? 'rect' : 'circle' })
+      return
+    }
     if (l.pts.length >= 2) useSketch.getState().addStroke({ pts: l.pts })
   }
   const onWheel = (e: React.WheelEvent) => {

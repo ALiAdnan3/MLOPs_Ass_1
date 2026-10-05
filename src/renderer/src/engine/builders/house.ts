@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { Floor, HouseState, MaterialDef, Opening, Room, SurfaceRef, Vec2, Wall } from '../../core/model/types'
+import type { Floor, HouseState, MaterialDef, Opening, Room, SurfaceRef, Vec2, Wall, Exterior } from '../../core/model/types'
 import { MeshBuilder, type V3 } from '../MeshBuilder'
 import type { MaterialManager } from '../materials/MaterialManager'
 import { wallFrames, wallPieces, type WallFrame } from '../../planner/wallGeometry'
@@ -71,23 +71,27 @@ export function buildFloor(floor: Floor, ctx: BuildContext): FloorBuild {
 
   const mainDoorWall = floor.level === 0 ? floor.openings.find((o) => o.style === 'main')?.wallId : undefined
   const exteriorMat = (w: Wall, f: WallFrame, t: number): string => {
-    const inside = roomAt(w, 'left', t) ?? roomAt(w, 'right', t)
+    // the indoor room behind the wall (a terrace or balcony in front of it is outside)
+    const l = roomAt(w, 'left', t)
+    const r = roomAt(w, 'right', t)
+    const inside = [l, r].find((x) => x && !spec(x.type).outdoor) ?? l ?? r
     const facesFront = inside ? outwardDir(f, inside) === 'front' : false
-    switch (ext.accent) {
-      case 'ground-floor':
-        if (floor.level === 0) return ext.accentMaterial
-        break
-      case 'entrance':
-        if (w.id === mainDoorWall) return ext.accentMaterial
-        break
-      case 'stair-tower':
-        if (inside?.type === 'stair' || inside?.type === 'mumty') return ext.accentMaterial
-        break
-      case 'front-feature':
-        if (facesFront && floor.level >= 1 && inside && (inside.type === 'master_bedroom' || inside.type === 'family' || inside.type === 'bedroom') && isWidestFront(floor, inside)) return ext.accentMaterial
-        if (facesFront && inside?.type === 'stair') return ext.accentMaterial
-        break
+    const hits = (placement: Exterior['accent']) => {
+      switch (placement) {
+        case 'ground-floor':
+          return floor.level === 0
+        case 'entrance':
+          return w.id === mainDoorWall
+        case 'stair-tower':
+          return inside?.type === 'stair' || inside?.type === 'mumty'
+        case 'front-feature':
+          return (facesFront && floor.level >= 1 && !!inside && (inside.type === 'master_bedroom' || inside.type === 'family' || inside.type === 'bedroom') && isWidestFront(floor, inside)) || (facesFront && inside?.type === 'stair')
+        default:
+          return false
+      }
     }
+    if (hits(ext.accent)) return ext.accentMaterial
+    if (ext.accent2 && hits(ext.accent2.placement)) return ext.accent2.material
     return ext.facadeMaterial
   }
   const sideMaterial = (w: Wall, f: WallFrame, side: 'left' | 'right', t: number): { id: string; surface: SurfaceRef } => {
@@ -313,6 +317,24 @@ export function buildFloor(floor: Floor, ctx: BuildContext): FloorBuild {
       const c = { x: w.a.x + dir.x * o.offset + n.x * out * (w.thickness / 2 + depth / 2), y: w.a.y + dir.y * o.offset + n.y * out * (w.thickness / 2 + depth / 2) }
       mb.use(mats.get(ext.accent !== 'none' ? ext.accentMaterial : ext.facadeMaterial), { kind: 'exteriorWall', floorId: fid, wallId: w.id })
       mb.box(c.x, z, c.y, o.width + 1.0, 0.16, depth, -Math.atan2(dir.y, dir.x))
+      if (ext.entrancePillars) {
+        // two pillars at the canopy's outer corners
+        const reach = depth - 0.2
+        const half = (o.width + 1.0) / 2 - 0.18
+        for (const sgn of [-1, 1]) {
+          const px = w.a.x + dir.x * (o.offset + sgn * half) + n.x * out * (w.thickness / 2 + reach)
+          const py = w.a.y + dir.y * (o.offset + sgn * half) + n.y * out * (w.thickness / 2 + reach)
+          const ph = z - 0.08
+          if (ext.columnStyle === 'square') mb.box(px, ph / 2, py, 0.3, ph, 0.3, -Math.atan2(dir.y, dir.x))
+          else {
+            mb.cylinder(px, 0, py, 0.15, 0.15, ph, 16)
+            if (ext.columnStyle === 'classical') {
+              mb.box(px, 0.08, py, 0.42, 0.16, 0.42, 0)
+              mb.box(px, ph - 0.08, py, 0.42, 0.16, 0.42, 0)
+            }
+          }
+        }
+      }
       lights.push({ p: new THREE.Vector3(c.x, z - 0.12, c.y), kind: 'downlight', roomId: '', warm: true, basement: false, on: true, intensity: 1 })
     }
   }

@@ -1,4 +1,4 @@
-import type { Floor, HouseState, MaterialDef, UnitSystem, Vec2 } from '../core/model/types'
+import type { Floor, HouseState, MaterialDef, UnitSystem, Vec2, Exterior } from '../core/model/types'
 import type { DrawContext, Stroke } from '../render/draw/types'
 import { hatch } from '../render/draw/types'
 import { floorElevations, sortedFloors } from '../core/model/house'
@@ -148,6 +148,7 @@ function collect(house: HouseState, side: ElevationSide, o: ElevationOptions, cu
   const color = o.color !== false
   const facade = color ? lighten(swatch(ext.facadeMaterial, o.materials, '#e9e5dc'), 0.15) : '#ffffff'
   const accent = color ? lighten(swatch(ext.accentMaterial, o.materials, '#9c8f7f'), 0.05) : '#ffffff'
+  const accent2 = color && ext.accent2 ? lighten(swatch(ext.accent2.material, o.materials, '#a38463'), 0.05) : '#ffffff'
   const plinthC = color ? swatch(ext.plinthMaterial, o.materials, '#6b6b6b') : '#ffffff'
   const roofC = color ? swatch(ext.roofMaterial, o.materials, '#6b6b6b') : '#ffffff'
   const glass = color ? '#a9c6d6' : '#ffffff'
@@ -189,10 +190,11 @@ function collect(house: HouseState, side: ElevationSide, o: ElevationOptions, cu
       if (!inView(d)) continue
       const railing = fr.kind === 'railing'
       const isAccent = ext.accent !== 'none' && fr.kind === 'exterior' && f.kind !== 'roof' && accentWall(house, f, w.id)
+      const isAccent2 = !isAccent && !!ext.accent2 && ext.accent2.placement !== 'none' && fr.kind === 'exterior' && f.kind !== 'roof' && accentWall(house, f, w.id, ext.accent2.placement)
       push({
         pts: rect(ua, ub, z, z + fr.height),
         depth: (V.d(a) + V.d(b)) / 2,
-        fill: railing ? glass : isAccent ? accent : facade,
+        fill: railing ? glass : isAccent ? accent : isAccent2 ? accent2 : facade,
         opacity: railing ? 0.45 : 1,
         stroke: S(railing ? 0.35 : 0.5),
         layer: railing ? 'railings' : 'walls',
@@ -281,8 +283,7 @@ function collect(house: HouseState, side: ElevationSide, o: ElevationOptions, cu
   return { faces, width: uMax - uMin, height: zTop, levels, uMin, uMax }
 }
 
-function accentWall(house: HouseState, f: Floor, wallId: string): boolean {
-  const ext = house.exterior
+function accentWall(house: HouseState, f: Floor, wallId: string, placement: Exterior['accent'] = house.exterior.accent): boolean {
   const w = f.walls.find((x) => x.id === wallId)
   if (!w) return false
   const D = house.plot.depth
@@ -292,7 +293,7 @@ function accentWall(house: HouseState, f: Floor, wallId: string): boolean {
     const m = { x: (w.a.x + w.b.x) / 2, y: (w.a.y + w.b.y) / 2 }
     return m.x >= b.x - 0.2 && m.x <= b.x + b.w + 0.2 && m.y >= b.y - 0.2 && m.y <= b.y + b.h + 0.2
   })
-  switch (ext.accent) {
+  switch (placement) {
     case 'ground-floor':
       return f.level === 0
     case 'stair-tower':

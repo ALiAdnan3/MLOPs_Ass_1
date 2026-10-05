@@ -96,12 +96,33 @@ export function ExteriorPanel() {
           </select>
         </div>
         <div className="prop">
+          <label>Second cladding</label>
+          <MaterialPicker project={project} value={ext.accent2?.material ?? 'lib:wood-teak'} categories={['wood', 'stone', 'brick', 'marble', 'granite', 'concrete', 'metal', 'porcelain']} onChange={(id) => upExt('Second cladding material', (e) => void (e.accent2 = { material: id, placement: e.accent2?.placement ?? 'front-feature' }))} />
+        </div>
+        <div className="prop">
+          <label>Second cladding on</label>
+          <select className="field" value={ext.accent2?.placement ?? 'none'} onChange={(e) => upExt('Second cladding placement', (x) => void (x.accent2 = e.target.value === 'none' ? undefined : { material: x.accent2?.material ?? 'lib:wood-teak', placement: e.target.value as Exterior['accent'] }))}>
+            <option value="none">Nowhere</option>
+            <option value="front-feature">Front feature walls</option>
+            <option value="entrance">Around the entrance</option>
+            <option value="stair-tower">Stair tower</option>
+            <option value="ground-floor">Whole ground floor</option>
+          </select>
+        </div>
+        <div className="prop">
           <label>Plinth</label>
           <MaterialPicker project={project} value={ext.plinthMaterial} categories={['stone', 'granite', 'concrete', 'brick', 'marble']} onChange={(id) => upExt('Plinth material', (e) => void (e.plinthMaterial = id))} />
         </div>
         <div className="prop">
           <label>Entrance canopy</label>
           <Switch on={ext.entranceCanopy} onChange={(v) => upExt(v ? 'Add entrance canopy' : 'Remove entrance canopy', (e) => void (e.entranceCanopy = v))} label="Entrance canopy" />
+        </div>
+        <div className="prop">
+          <label>Entrance pillars</label>
+          <Switch on={!!ext.entrancePillars} onChange={(v) => upExt(v ? 'Add entrance pillars' : 'Remove entrance pillars', (e) => {
+              e.entrancePillars = v
+              if (v) e.entranceCanopy = true
+            })} label="Entrance pillars" />
         </div>
       </div>
 

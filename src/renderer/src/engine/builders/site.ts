@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import type { HouseState, SiteObject, Vec2 } from '../../core/model/types'
 import { MeshBuilder } from '../MeshBuilder'
 import type { MaterialManager } from '../materials/MaterialManager'
@@ -347,17 +348,133 @@ function inwardNormal(a: Vec2, b: Vec2, pb: { x: number; y: number; w: number; h
   return (m.x + n.x - c.x) ** 2 + (m.y + n.y - c.y) ** 2 < (m.x - c.x) ** 2 + (m.y - c.y) ** 2 ? n : { x: -n.x, y: -n.y }
 }
 
+/* ── vegetation geometry: organic canopies, real palms, clustered shrubs ───── */
+
+/** Deterministic smooth-ish noise for displacing canopy vertices. */
+function lumpy(x: number, y: number, z: number, seed: number) {
+  return Math.sin(x * 2.1 + seed) * Math.sin(y * 1.7 + seed * 1.3) * Math.sin(z * 2.3 + seed * 0.7)
+}
+
+/** A lumpy sphere of foliage with a slight colour variation baked into vertex colours. */
+function foliageBlob(r: number, cx: number, cy: number, cz: number, seed: number, tint: THREE.Color) {
+  // welded so the displaced canopy shades smoothly instead of in flat facets
+  const raw = new THREE.IcosahedronGeometry(r, 3)
+  raw.deleteAttribute('normal')
+  raw.deleteAttribute('uv')
+  const g = mergeVertices(raw)
+  const pos = g.attributes.position as THREE.BufferAttribute
+  const col = new Float32Array(pos.count * 3)
+  const v = new THREE.Vector3()
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i)
+    const k = 1 + 0.16 * lumpy(v.x, v.y, v.z, seed) + 0.06 * lumpy(v.x * 3, v.y * 3, v.z * 3, seed + 4)
+    v.multiplyScalar(k)
+    // flatter underside, like a real crown
+    if (v.y < 0) v.y *= 0.72
+    pos.setXYZ(i, v.x + cx, v.y + cy, v.z + cz)
+    // darker inside and underneath, lighter on top
+    const shade = 0.78 + 0.22 * Math.max(0, Math.min(1, (v.y / r + 1) / 2)) + 0.05 * lumpy(v.x * 5, v.y * 5, v.z * 5, seed + 9)
+    col[i * 3] = tint.r * shade
+    col[i * 3 + 1] = tint.g * shade
+    col[i * 3 + 2] = tint.b * shade
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+  g.computeVertexNormals()
+  return g
+}
+
+function treeCrown() {
+  const parts: [number, number, number, number][] = [
+    [0, 4.0, 0, 1.45],
+    [0.95, 3.55, 0.35, 1.05],
+    [-0.85, 3.6, -0.4, 1.1],
+    [0.25, 4.75, -0.3, 1.0],
+    [-0.35, 3.3, 0.85, 0.9],
+    [0.6, 3.3, -0.9, 0.85]
+  ]
+  const greens = ['#4d7a36', '#5a8a3e', '#466f31', '#628f45'].map((c) => new THREE.Color(c))
+  return mergeGeometries(parts.map(([x, y, z, r], i) => foliageBlob(r, x, y, z, i * 1.7 + 0.3, greens[i % greens.length])))!
+}
+
+function treeTrunk() {
+  const t = new THREE.CylinderGeometry(0.11, 0.2, 3.2, 8)
+  t.translate(0, 1.6, 0)
+  const b1 = new THREE.CylinderGeometry(0.05, 0.09, 1.4, 6)
+  b1.translate(0, 0.7, 0)
+  b1.rotateZ(0.7)
+  b1.translate(0.2, 2.6, 0)
+  const b2 = new THREE.CylinderGeometry(0.05, 0.08, 1.2, 6)
+  b2.translate(0, 0.6, 0)
+  b2.rotateX(-0.75)
+  b2.translate(0, 2.4, -0.15)
+  return mergeGeometries([t, b1, b2])!
+}
+
+/** A ringed, gently curved palm trunk. */
+function palmTrunk() {
+  const segs: THREE.BufferGeometry[] = []
+  const n = 9
+  for (let i = 0; i < n; i++) {
+    const r0 = 0.19 - i * 0.008
+    const g = new THREE.CylinderGeometry(r0 - 0.012, r0, 0.58, 8)
+    const y = i * 0.56 + 0.29
+    g.translate(Math.sin((i / n) * 1.4) * 0.35, y, 0)
+    segs.push(g)
+  }
+  return mergeGeometries(segs)!
+}
+
+/** Drooping, V-folded palm fronds around the crown. */
+function palmFronds() {
+  const fronds: THREE.BufferGeometry[] = []
+  const L = 2.8
+  const N = 10
+  const count = 11
+  for (let f = 0; f < count; f++) {
+    const pos: number[] = []
+    const idx: number[] = []
+    for (let i = 0; i <= N; i++) {
+      const t = i / N
+      const along = t * L
+      const droop = -1.25 * t * t + 0.35 * t
+      const w = 0.42 * Math.sin(Math.PI * Math.min(1, t * 1.08)) + 0.03
+      // centre rib and two folded sides
+      pos.push(along, droop, 0, along, droop - w * 0.25, w, along, droop - w * 0.25, -w)
+      if (i < N) {
+        const a = i * 3
+        const b = a + 3
+        idx.push(a, b, a + 1, b, b + 1, a + 1, a, a + 2, b, b, a + 2, b + 2)
+      }
+    }
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    g.setIndex(idx)
+    g.computeVertexNormals()
+    g.rotateZ(0.25 + (f % 3) * 0.12)
+    g.rotateY((f / count) * Math.PI * 2 + (f % 2) * 0.2)
+    g.translate(0.35 * Math.sin(1.4), 5.05, 0)
+    fronds.push(g)
+  }
+  return mergeGeometries(fronds)!
+}
+
+function shrubCluster() {
+  const tint = new THREE.Color('#557f3c')
+  return mergeGeometries([foliageBlob(0.5, 0, 0.45, 0, 1, tint), foliageBlob(0.36, 0.38, 0.35, 0.12, 2, tint.clone().multiplyScalar(1.08)), foliageBlob(0.34, -0.3, 0.33, -0.22, 3, tint.clone().multiplyScalar(0.92))])!
+}
+
 /** Trees, palms and shrubs as instanced meshes (§50: object instancing). */
 function instancedVegetation(trees: SiteObject[], palms: SiteObject[], shrubs: SiteObject[], mats: MaterialManager): THREE.Object3D[] {
   const out: THREE.Object3D[] = []
   const bark = mats.flat('#5b4636', 'site', { roughness: 1 })
-  const leafA = mats.flat('#4f7a3a', 'site', { roughness: 0.95 })
-  const leafB = mats.flat('#5f8d42', 'site', { roughness: 0.95 })
-  const palmLeaf = mats.flat('#5e8a3b', 'site', { roughness: 0.9, side: THREE.DoubleSide })
+  const leaves = mats.flat('#ffffff', 'site', { roughness: 0.92, vertexColors: true })
+  const palmLeaf = mats.flat('#5e8a3b', 'site', { roughness: 0.85, side: THREE.DoubleSide })
+  const palmBark = mats.flat('#7a6650', 'site', { roughness: 1 })
   const m = new THREE.Matrix4()
   const q = new THREE.Quaternion()
   const s = new THREE.Vector3()
   const p = new THREE.Vector3()
+  const up = new THREE.Vector3(0, 1, 0)
   const make = (geo: THREE.BufferGeometry, mat: THREE.Material, list: SiteObject[], place: (o: SiteObject, i: number) => void) => {
     if (!list.length) return
     const im = new THREE.InstancedMesh(geo, mat, list.length)
@@ -370,26 +487,16 @@ function instancedVegetation(trees: SiteObject[], palms: SiteObject[], shrubs: S
     im.instanceMatrix.needsUpdate = true
     out.push(im)
   }
-  const trunk = new THREE.CylinderGeometry(0.12, 0.2, 2.6, 7)
-  trunk.translate(0, 1.3, 0)
-  const crown = new THREE.IcosahedronGeometry(1.6, 1)
-  crown.translate(0, 3.6, 0)
-  const crown2 = new THREE.IcosahedronGeometry(1.1, 1)
-  crown2.translate(0.7, 3.0, 0.4)
-  make(trunk, bark, trees, (o) => m.compose(p.set(o.position.x, 0, o.position.y), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), o.rotation), s.setScalar(o.scale)))
-  make(crown, leafA, trees, (o) => m.compose(p.set(o.position.x, 0, o.position.y), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), o.rotation), s.set(o.scale, o.scale * 0.95, o.scale)))
-  make(crown2, leafB, trees, (o) => m.compose(p.set(o.position.x, 0, o.position.y), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), o.rotation + 1), s.setScalar(o.scale)))
-  const ptrunk = new THREE.CylinderGeometry(0.13, 0.2, 5, 7)
-  ptrunk.translate(0, 2.5, 0)
-  make(ptrunk, bark, palms, (o) => m.compose(p.set(o.position.x, 0, o.position.y), q.identity(), s.setScalar(o.scale)))
-  const frond = new THREE.ConeGeometry(2.2, 1.2, 9, 1, true)
-  frond.rotateX(Math.PI)
-  frond.translate(0, 5.1, 0)
-  make(frond, palmLeaf, palms, (o) => m.compose(p.set(o.position.x, 0, o.position.y), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), o.rotation), s.setScalar(o.scale)))
-  const bush = new THREE.IcosahedronGeometry(0.55, 1)
-  bush.translate(0, 0.45, 0)
+  const at = (o: SiteObject, spin = 0, sy = 1) => m.compose(p.set(o.position.x, 0, o.position.y), q.setFromAxisAngle(up, o.rotation + spin), s.set(o.scale, o.scale * sy, o.scale))
+  make(treeTrunk(), bark, trees, (o) => at(o))
+  make(treeCrown(), leaves, trees, (o) => at(o, 0, 0.95))
+  make(palmTrunk(), palmBark, palms, (o) => at(o))
+  make(palmFronds(), palmLeaf, palms, (o) => at(o))
+  const bush = shrubCluster()
   const flowerMat = mats.flat('#c9567a', 'site', { roughness: 0.9 })
-  make(bush, leafB, shrubs.filter((x) => x.kind !== 'flowers'), (o) => m.compose(p.set(o.position.x, 0, o.position.y), q.identity(), s.setScalar(o.scale)))
-  make(bush, flowerMat, shrubs.filter((x) => x.kind === 'flowers'), (o) => m.compose(p.set(o.position.x, -0.15, o.position.y), q.identity(), s.set(o.scale, 0.6, o.scale)))
+  make(bush, leaves, shrubs.filter((x) => x.kind !== 'flowers'), (o) => at(o))
+  const flowerBed = new THREE.IcosahedronGeometry(0.55, 1)
+  flowerBed.translate(0, 0.3, 0)
+  make(flowerBed, flowerMat, shrubs.filter((x) => x.kind === 'flowers'), (o) => m.compose(p.set(o.position.x, -0.15, o.position.y), q.identity(), s.set(o.scale, 0.6, o.scale)))
   return out
 }

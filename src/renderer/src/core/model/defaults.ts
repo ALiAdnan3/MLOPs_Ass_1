@@ -1,6 +1,7 @@
 import type {
   ArchitecturalStyle,
   CostRates,
+  DesignStrategy,
   Exterior,
   Floor,
   FloorKind,
@@ -76,7 +77,8 @@ const STYLE_EXTERIOR: Record<ArchitecturalStyle, Partial<Exterior>> = {
   contemporary: { facadeMaterial: 'lib:render-ivory', accentMaterial: 'wood-panel', accent: 'front-feature', roofType: 'flat', windowFrameMaterial: 'lib:metal-black', columnStyle: 'square' },
   minimalist: { facadeMaterial: 'lib:render-white', accentMaterial: 'lib:concrete-board', accent: 'entrance', roofType: 'flat', windowFrameMaterial: 'lib:metal-aluminum', columnStyle: 'square' },
   traditional: { facadeMaterial: 'lib:render-ivory', accentMaterial: 'lib:brick-gutka', accent: 'ground-floor', roofType: 'flat', windowFrameMaterial: 'lib:wood-teak', columnStyle: 'round' },
-  luxury: { facadeMaterial: 'lib:render-white', accentMaterial: 'lib:marble-botticino', accent: 'front-feature', roofType: 'flat', windowFrameMaterial: 'lib:metal-brass', columnStyle: 'classical' },
+  // modern luxury villa: slate hip roof, stone ground floor, timber feature panels, big black-framed glass
+  luxury: { facadeMaterial: 'lib:render-white', accentMaterial: 'lib:stone-ledgestone', accent: 'ground-floor', accent2: { material: 'lib:wood-teak', placement: 'front-feature' }, roofType: 'hip', roofMaterial: 'lib:roof-slate', windowFrameMaterial: 'lib:metal-black', columnStyle: 'square', windowScale: 1.25 },
   islamic: { facadeMaterial: 'lib:render-ivory', accentMaterial: 'lib:stone-sandstone', accent: 'entrance', roofType: 'flat', windowFrameMaterial: 'lib:wood-walnut', columnStyle: 'round' },
   mediterranean: { facadeMaterial: 'lib:render-ivory', accentMaterial: 'lib:stone-travertine', accent: 'ground-floor', roofType: 'hip', roofMaterial: 'lib:roof-clay', windowFrameMaterial: 'lib:wood-walnut', columnStyle: 'round' },
   european: { facadeMaterial: 'lib:render-white', accentMaterial: 'lib:stone-limestone', accent: 'ground-floor', roofType: 'mansard', roofMaterial: 'lib:roof-slate', windowFrameMaterial: 'lib:paint-warm-white', columnStyle: 'classical' },
@@ -85,6 +87,32 @@ const STYLE_EXTERIOR: Record<ArchitecturalStyle, Partial<Exterior>> = {
   farmhouse: { facadeMaterial: 'lib:render-white', accentMaterial: 'lib:wood-oak', accent: 'entrance', roofType: 'gable', roofMaterial: 'lib:roof-standing-seam', windowFrameMaterial: 'lib:metal-black', columnStyle: 'square' },
   pakistani_modern: { facadeMaterial: 'lib:render-ivory', accentMaterial: 'lib:brick-gutka', accent: 'front-feature', roofType: 'flat', windowFrameMaterial: 'lib:metal-black', columnStyle: 'square' },
   custom: {}
+}
+
+/** How a design in each style is named on cards and in the presentation. */
+export const STYLE_TITLE: Record<ArchitecturalStyle, string> = {
+  modern: 'Modern Home',
+  contemporary: 'Contemporary Design',
+  minimalist: 'Minimalist Modern',
+  traditional: 'Traditional Style',
+  luxury: 'Modern Luxury Villa',
+  islamic: 'Islamic Courtyard House',
+  mediterranean: 'Mediterranean Villa',
+  european: 'Classic Elegance',
+  colonial: 'Colonial Classic',
+  industrial: 'Industrial Townhouse',
+  farmhouse: 'Modern Farmhouse',
+  pakistani_modern: 'Pakistani Modern',
+  custom: 'Custom Design'
+}
+
+/** "Show me different styles": each layout strategy gets its own look. */
+export const MIX_STYLES: Partial<Record<DesignStrategy, ArchitecturalStyle>> = {
+  'luxury-open': 'luxury',
+  family: 'contemporary',
+  'room-space': 'european',
+  garden: 'minimalist',
+  privacy: 'traditional'
 }
 
 export function exteriorForStyle(style: ArchitecturalStyle): Exterior {
@@ -101,7 +129,7 @@ export function exteriorForStyle(style: ArchitecturalStyle): Exterior {
     windowScale: 1,
     entranceCanopy: true,
     columnStyle: 'square',
-    lighting: { facadeWash: true, verticalStrips: style === 'modern' || style === 'luxury' || style === 'contemporary', gardenLights: true, gateLights: true, temperature: 3000 }
+    lighting: { facadeWash: true, verticalStrips: style === 'modern' || style === 'luxury' || style === 'contemporary', gardenLights: true, gateLights: true, temperature: style === 'luxury' ? 2700 : 3000 }
   }
   const s = { ...base, ...STYLE_EXTERIOR[style] }
   // 'wood-panel' shorthand

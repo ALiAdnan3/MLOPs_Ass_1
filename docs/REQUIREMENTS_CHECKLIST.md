@@ -7,7 +7,7 @@ Verification: `npm test` (37 unit tests), `e2e/tour.py`, `e2e/wizard.py` and `e2
 ## Product & platform
 
 - [x] §1 HomeForge AI with subtitle; full workflow; everything editable after generation
-- [x] Design dashboard (home): plot and requirements setup, generate designs in place, live 3D hero (orbit, exterior, interior, top; day, sunset, night), rendered 2D plans and 3D cut-away, design strip with Select, finishes with room preview and photo upload, room customisation and resize, drone and walkthrough tours, sketch tools, links to every tool
+- [x] Design dashboard (home), matching the second reference: plot setup with custom size, requirements with pillars, generate five designs in five styles, live 3D hero with Select / Move / Rotate / Resize / Draw / Measure / Undo / Redo, Exterior / Interior / Top views with camera choice and compass, day / sunset / evening / night, rendered 2D plans and 3D cut-away with zoom, design strip with Select, finishes on floor or walls with daylight room preview and photo upload, room customisation (flooring, walls, ceiling, furniture style) and exact dimensions, drone / interior / exterior tours, sketch tools including rectangle and circle (A8)
 - [x] Pro workspace: tools and layers sidebar, 2D plan and 3D side by side, floor, material, recent-project and assistant dock, properties panel
 - [x] §2 Electron desktop app; autosave; offline-first; local storage; quality Low/Medium/High/Ultra; runs on software WebGL at Low (slow without a GPU)
 - [x] §66 Modules: core/ planner/ editor/ engine/ ai/ render/ export/ storage/ modes/ dialogs/ workspace/

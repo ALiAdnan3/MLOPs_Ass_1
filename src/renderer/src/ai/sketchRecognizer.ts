@@ -23,6 +23,32 @@ import { FT } from '../core/units/units'
 
 export interface InkStroke {
   pts: Vec2[]
+  /** Drawn with a shape tool (exact geometry) rather than freehand. */
+  shape?: 'rect' | 'circle'
+}
+
+/** A small closed round loop (tool-drawn or freehand) reads as a pillar: centre and radius, else null. */
+export function circleOf(s: InkStroke): { c: Vec2; r: number } | null {
+  const pts = s.pts
+  if (pts.length < 8) return null
+  const c = { x: pts.reduce((a, p) => a + p.x, 0) / pts.length, y: pts.reduce((a, p) => a + p.y, 0) / pts.length }
+  const ds = pts.map((p) => Math.hypot(p.x - c.x, p.y - c.y))
+  const r = ds.reduce((a, d) => a + d, 0) / ds.length
+  if (r < 0.05) return null
+  if (s.shape === 'circle') return { c, r }
+  const sd = Math.sqrt(ds.reduce((a, d) => a + (d - r) ** 2, 0) / ds.length)
+  const closed = Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < r * 0.6
+  // it must go most of the way round, not just be a curved line
+  let turn = 0
+  for (let i = 1; i < pts.length; i++) {
+    const a0 = Math.atan2(pts[i - 1].y - c.y, pts[i - 1].x - c.x)
+    const a1 = Math.atan2(pts[i].y - c.y, pts[i].x - c.x)
+    let d = a1 - a0
+    if (d > Math.PI) d -= 2 * Math.PI
+    if (d < -Math.PI) d += 2 * Math.PI
+    turn += d
+  }
+  return closed && sd / r < 0.18 && Math.abs(turn) > Math.PI * 1.6 && r <= 0.9 ? { c, r } : null
 }
 export interface TextMark {
   p: Vec2
@@ -48,6 +74,8 @@ export interface RecognizedPlan {
   walls: Seg[]
   rooms: RecognizedRoom[]
   openings: RecognizedOpening[]
+  /** Round pillars from small circles in the drawing. */
+  columns: { at: Vec2; d: number }[]
   /** Metres per sketch unit applied from dimension labels (1 = drawn to scale). */
   scale: number
   notes: string[]
@@ -397,6 +425,8 @@ export interface RecognizeOptions {
   windowMarks?: Seg[]
   /** Keep coordinates as drawn (adding to an existing plan): dimension labels do not rescale. */
   noScale?: boolean
+  /** Circles drawn in the sketch (see circleOf): they become pillars. */
+  circles?: { c: Vec2; r: number }[]
 }
 
 export function recognize(rawSegs: Seg[], o: RecognizeOptions = {}): RecognizedPlan {
@@ -515,7 +545,9 @@ export function recognize(rawSegs: Seg[], o: RecognizeOptions = {}): RecognizedP
   const doors = openings.filter((x) => x.kind === 'door').length
   const wins = openings.filter((x) => x.kind === 'window').length
   notes.unshift(`Found ${lines.length} walls, ${rooms.length} rooms, ${doors} doors and ${wins} windows.`)
-  return { walls: walls.map((w) => ({ a: S(w.a), b: S(w.b) })), rooms, openings, scale, notes }
+  const columns = (o.circles ?? []).map((c) => ({ at: S(c.c), d: Math.max(0.2, Math.min(0.9, 2 * c.r * scale)) }))
+  if (columns.length) notes.push(`${columns.length} circle${columns.length === 1 ? '' : 's'} became round pillar${columns.length === 1 ? '' : 's'}.`)
+  return { walls: walls.map((w) => ({ a: S(w.a), b: S(w.b) })), rooms, openings, columns, scale, notes }
 }
 
 function niceName(label: string, type: RoomType) {
@@ -549,6 +581,7 @@ export function applyRecognizedPlan(plan: RecognizedPlan, floor: Floor, plot: Pl
   floor.columns = []
   floor.beams = []
   refreshFloor(floor, settings)
+  for (const c of plan.columns ?? []) floor.columns.push({ id: uid('col'), position: T(c.at), width: c.d, depth: c.d, rotation: 0, shape: 'round', exposed: true })
   // re-host openings on the rebuilt walls
   for (const o of plan.openings) {
     const at = T(o.at)
@@ -608,6 +641,7 @@ export function addRecognizedRooms(plan: RecognizedPlan, floor: Floor, settings:
   const warnings: string[] = []
   const existing = unionPolys(floor.rooms.filter((r) => r.type !== 'void').map((r) => r.polygon))
   const added: Room[] = []
+  for (const c of plan.columns ?? []) floor.columns.push({ id: uid('col'), position: { ...c.at }, width: c.d, depth: c.d, rotation: 0, shape: 'round', exposed: true })
   for (const r of plan.rooms) {
     let poly = r.polygon.map((p) => ({ x: Math.round(p.x * 1000) / 1000, y: Math.round(p.y * 1000) / 1000 }))
     if (existing.length) {

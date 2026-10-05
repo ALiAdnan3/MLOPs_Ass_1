@@ -1,4 +1,4 @@
-import type { DesignOption, DesignStrategy, Plot, ProjectSettings, Requirements } from '../core/model/types'
+import type { ArchitecturalStyle, DesignOption, DesignStrategy, Plot, ProjectSettings, Requirements } from '../core/model/types'
 import type { GenJob } from '../planner/generate.worker'
 import { generateDesign, type GenerationError, type PipelineStage, STRATEGIES } from '../planner/generator'
 
@@ -21,7 +21,8 @@ export function generateDesignsParallel(
   plot: Plot,
   settings: Pick<ProjectSettings, 'wallThickness' | 'floorHeight' | 'plinthHeight'>,
   onProgress: (p: GenProgress) => void,
-  opts: { strategies?: DesignStrategy[]; baseSeed?: number; iterations?: number } = {}
+  /** `styles`: a different architectural style per strategy ("show me different styles"). */
+  opts: { strategies?: DesignStrategy[]; baseSeed?: number; iterations?: number; styles?: Partial<Record<DesignStrategy, ArchitecturalStyle>> } = {}
 ): Promise<{ designs: DesignOption[]; errors: GenerationError[] }> {
   const list = opts.strategies ?? STRATEGIES.map((s) => s.key)
   const base = opts.baseSeed ?? Math.floor(Math.random() * 1e6)
@@ -38,7 +39,8 @@ export function generateDesignsParallel(
         const seed = base + next * 977
         next++
         running++
-        runOne({ id: jobId++, req, plot, strategy, seed, settings, iterations: opts.iterations }, (m) => onProgress({ strategy, ...m })).then((r) => {
+        const style = opts.styles?.[strategy]
+        runOne({ id: jobId++, req: style ? { ...req, style } : req, plot, strategy, seed, settings, iterations: opts.iterations }, (m) => onProgress({ strategy, ...m })).then((r) => {
           running--
           done++
           if (r.design) designs.push(r.design)

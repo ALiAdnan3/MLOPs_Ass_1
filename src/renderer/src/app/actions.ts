@@ -135,6 +135,7 @@ export async function openDemoHouse(screen: 'workspace' | 'home' = 'workspace') 
   try {
     const t = TEMPLATES.find((x) => x.id === '10m-luxury')!
     const req = templateRequirements(t)
+    req.style = 'luxury'
     req.outdoor.patio = true
     req.outdoor.backLawn = true
     req.outdoor.garden = true

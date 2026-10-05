@@ -59,6 +59,9 @@ export function renderHouseImage(p: Project, opts: HouseImageOptions = { width: 
       const shot = e.snapshot({ width: opts.width, height: opts.height, type: opts.type ?? 'image/jpeg', quality: 0.9, pose: { position: pos, target, fov } })
       // put back what was on show before anything else can draw
       if (prev) e.update(prev, prevOpts)
+      // the capture resized (and so cleared) the shared canvas: redraw the view now, or it stays
+      // blank while the next queued render waits for its textures
+      if (prev && e.container) e.renderFrame()
       return URL.createObjectURL(await shot)
     } finally {
       e.holds--

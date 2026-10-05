@@ -93,3 +93,31 @@ Raises §5 and §6. The original wording asked for bathrooms; it did not say the
 - In a small bathroom, the WC sits beside the door, clear of the door leaf. A compact wall-hung WC is used if needed.
 - If the requested bathrooms cannot all fit at a usable size, the generator first tries other layouts, then one bathroom fewer, so bedrooms share. The design says so, for example "3 bathrooms instead of 4, so each one is big enough to use on this plot".
 - Verified by unit tests on 3, 5 and 7 marla across every strategy: every bathroom has a WC, and at most one is flagged.
+
+## A8. Dashboard to the second reference design
+
+Extends the design dashboard (pass 4) to match `docs/reference/dashboard-reference-v2.png`, and raises §5 (designs), §16 (exterior) and §21 (sketch).
+
+- **Five designs, five styles.** With Style set to "Mix of styles", each of the five layouts gets its own architecture: Modern Luxury Villa, Contemporary Design, Classic Elegance, Minimalist Modern and Traditional Style. Each card reads "1 Kanal | 2 Floors | 5 BHK". Choosing one style gives five layouts in that style. The luxury villa loads first, lit at blue hour.
+- **Richer exteriors.**
+  - A second cladding: for example a stone ground floor with teak feature panels above. It is set in Exterior and drawn in 3D and in the elevations.
+  - Entrance pillars, square, round or classical, from the new Pillars requirement.
+  - A deeper hip-roof overhang with timber soffits.
+  - Larger windows for the luxury style.
+  - Organic, smooth-shaded trees, palms and shrubs.
+- **Hero editing.**
+  - The toolbar has Select, Move, Rotate, Resize, Draw / Sketch, Measure, Undo and Redo, all working on the live 3D view. Click selects a room, wall or piece of furniture. Rotate turns furniture, stairs and columns by 90°. Resize opens the room's dimensions. Move and Measure open the plan with the selection kept.
+  - View Mode is Exterior, Interior or Top. Exterior cameras: Drone, Street, Orbit, Front, Back and the sides. Interior cameras list every room.
+  - A compass rose shows true north as the camera turns.
+  - Lighting: Day, Sunset, Evening and Night. Evening is computed from the actual sunset for the plot's city and date.
+- **Tiles and panels.**
+  - The 2D and 3D floor plans have zoom in, zoom out and fit.
+  - Finishes apply to the floor or the walls of the chosen room. The room preview is rendered in daylight.
+  - Room Customization covers flooring, wall finish, ceiling design and furniture style, with thumbnails.
+  - Adjust Dimensions has sliders plus exact number boxes.
+- **Sketch.**
+  - New Rectangle and Circle tools.
+  - A small circle, whether drawn with the tool or freehand, becomes a round pillar in the plan.
+- Verified:
+  - A browser run of 31 dashboard checks: generation, style mix, select, finishes, resize, undo, ceiling, furniture, lighting, picking, rotate, move, measure, the three views, orbit, compass, tile zoom, change material, sketch tools, tours and the menu.
+  - The unit tests and the full end-to-end scenario.
