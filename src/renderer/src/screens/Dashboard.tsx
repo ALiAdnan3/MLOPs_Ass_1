@@ -248,7 +248,7 @@ function DashNav({ onProjects }: { onProjects: () => void }) {
 
 /* ── left: project setup ─────────────────────────────────────────────────── */
 
-const SIZES = ['5-marla', '7-marla', '10-marla', '1-kanal', '2-kanal', '4-kanal']
+const SIZES = ['5-marla', '7-marla', '10-marla', '15-marla', '1-kanal', '2-kanal', '4-kanal']
 const FLOORS: { v: FloorsOption; label: string }[] = [
   { v: 'single', label: '1' },
   { v: 'double', label: '2' },
