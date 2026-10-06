@@ -183,7 +183,7 @@ const MATERIAL_WORDS: [RegExp, string][] = [
   [/\b(carpet)\b/, 'carpet']
 ]
 
-const STYLES: ArchitecturalStyle[] = ['modern', 'contemporary', 'minimalist', 'traditional', 'luxury', 'islamic', 'mediterranean', 'european', 'colonial', 'industrial', 'farmhouse']
+const STYLES: ArchitecturalStyle[] = ['modern', 'contemporary', 'minimalist', 'traditional', 'luxury', 'luxury_classic', 'islamic', 'mediterranean', 'european', 'colonial', 'industrial', 'farmhouse']
 
 export function parseEditOffline(text: string, p: Project, floorId: string): EditPlan {
   const ops: EditOp[] = []
@@ -255,7 +255,7 @@ export function parseEditOffline(text: string, p: Project, floorId: string): Edi
       ops.push(op({ op: 'set_roof', value: v }))
     }
     // exterior style
-    const style = STYLES.find((s) => new RegExp(`\\b${s}\\b`).test(c))
+    const style = /\bclassic(al)?\s+luxur(y|ious)\b|\bmarble\s+(luxury|villa|facade|façade)\b/.test(c) ? 'luxury_classic' : STYLES.find((s) => new RegExp(`\\b${s}\\b`).test(c))
     if (style && /\b(style|look|elevation|exterior|facade|façade|front|house|design|more|make it|make the)\b/.test(c) && !rooms.some((r) => r.hit)) ops.push(op({ op: 'set_style', value: style }))
     // windows
     if (/\bwindows?\b/.test(c)) {

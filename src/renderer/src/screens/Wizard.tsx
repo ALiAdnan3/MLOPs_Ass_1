@@ -93,6 +93,7 @@ const STYLES: { v: ArchitecturalStyle; t: string; d: string }[] = [
   { v: 'minimalist', t: 'Minimalist', d: 'Clean planes, board-formed concrete' },
   { v: 'traditional', t: 'Traditional', d: 'Gutka brick base, timber windows' },
   { v: 'luxury', t: 'Modern Luxury Villa', d: 'Slate hip roof, stone base, timber panels, big glass' },
+  { v: 'luxury_classic', t: 'Classic Luxury', d: 'Marble cladding, brass frames, classical columns' },
   { v: 'islamic', t: 'Islamic', d: 'Sandstone, arches and courtyards' },
   { v: 'mediterranean', t: 'Mediterranean', d: 'Travertine and clay-tile hip roof' },
   { v: 'european', t: 'European', d: 'Limestone base, mansard slate roof' },

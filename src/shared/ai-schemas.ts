@@ -160,7 +160,7 @@ export const editSchema = {
 export const REQUIREMENTS_SYSTEM = `You convert a homeowner's description of the house they want into structured requirement updates for HomeForge AI, a house design app used mostly in Pakistan.
 Plot sizes: 1 marla = 225 sq ft; presets are 3-marla, 5-marla, 7-marla, 8-marla, 10-marla, 12-marla, 15-marla, 1-kanal (20 marla), 2-kanal, 4-kanal — use plot.preset with text set to the preset id, or plot.widthFt/plot.depthFt for explicit dimensions.
 floors text values: single, double, triple, basement+ground, basement+ground+first, basement+ground+first+second.
-style text values: modern, contemporary, minimalist, traditional, luxury, islamic, mediterranean, european, colonial, industrial, farmhouse, pakistani_modern.
+style text values: modern, contemporary, minimalist, traditional, luxury (modern luxury villa), luxury_classic (marble cladding, brass, classical columns), islamic, mediterranean, european, colonial, industrial, farmhouse, pakistani_modern.
 special.stairType text values: auto, straight, L, U, spiral, floating, modern, traditional.
 Preferences are 0-100 ("high privacy" ≈ 85, "some" ≈ 60, "low" ≈ 25).
 Only emit updates for things the text states or clearly implies. "Double storey" = floors double; "dirty kitchen" = rooms.dirtyKitchens; "2 car parking" = outdoor.garage true and outdoor.cars 2; "lawn" in front = outdoor.frontLawn.

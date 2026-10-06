@@ -121,3 +121,15 @@ Extends the design dashboard (pass 4) to match `docs/reference/dashboard-referen
 - Verified:
   - A browser run of 31 dashboard checks: generation, style mix, select, finishes, resize, undo, ceiling, furniture, lighting, picking, rotate, move, measure, the three views, orbit, compass, tile zoom, change material, sketch tools, tours and the menu.
   - The unit tests and the full end-to-end scenario.
+- **Everything from the first dashboard is kept alongside the new one:**
+  - Projects and light/dark theme buttons in the title bar, next to Settings and the account menu.
+  - The Double height requirement.
+  - The perspective Front facade camera.
+  - Bathrooms and total floor area on each design card.
+  - Every library material in a category (Show all), including the user's own uploads.
+  - The room choice under the finishes preview.
+  - Draw Room and Measure in the plan, from Sketch Tools.
+  - Room sizes in feet and inches.
+- **Classic Luxury (Marble)** keeps the original luxury look as its own style: Botticino marble cladding, brass window frames, classical columns and a flat roof. It sits next to the new Modern Luxury Villa in the wizard, the Exterior panel, the dashboard style list, the text parser ("classic luxury", "marble villa") and the AI edit commands.
+- Fix: dashboard shortcuts into a plan tool (Measure, Draw Room) no longer fall back to Select when switching modes.
+- Verified: the dashboard check grows to 42 cases, all passing.

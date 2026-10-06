@@ -46,24 +46,25 @@ import {
   ZoomOut,
   Scan,
   SlidersHorizontal,
-  Keyboard
+  Keyboard,
+  LayoutGrid
 } from 'lucide-react'
 import { useUI } from '../state/ui'
 import { useProject, commit, getProject } from '../state/store'
 import { useWizard } from './wizardState'
 import { BrandMark, LengthField, Menu, Modal, Seg, Slider } from '../ui/primitives'
 import { PLOT_PRESETS, presetById } from '../core/units/plots'
-import { FT, formatAreaFor, formatPlotSize } from '../core/units/units'
+import { FT, formatAreaFor, formatLength, formatPlotSize } from '../core/units/units'
 import { generateDesignsParallel } from '../ai/designService'
 import { projectFromDesign, applyDesignToProject, openDemoHouse, dressDemo, setMode } from '../app/actions'
 import { renderHouseImage } from '../render/houseImage'
 import { renderPlanToCanvas } from '../render/planImage'
 import { getEngine, hasEngine } from '../engine/Engine'
-import type { ArchitecturalStyle, DesignOption, EntityRef, FloorsOption, Project, Room, UnitSystem } from '../core/model/types'
+import type { ArchitecturalStyle, DesignOption, EntityRef, FloorsOption, MaterialCategory, Project, Room, UnitSystem } from '../core/model/types'
 import { sortedFloors, floorElevations } from '../core/model/house'
 import { bbox, area } from '../core/geometry/polygon'
 import { spec } from '../core/constraints/rooms'
-import { resolveMaterial } from '../core/materials/library'
+import { LIBRARY, resolveMaterial } from '../core/materials/library'
 import { useMaterialThumb, thumbStyle } from '../render/materialThumb'
 import { MaterialPicker } from '../workspace/Inspector'
 import { setRoomSize, refurnishRoom } from '../planner/operations'
@@ -160,7 +161,7 @@ export function Dashboard() {
           <DesignStrip designs={designs} activeId={real ? project.activeDesignId : undefined} shown={shown} />
         </main>
         <aside className="dash-right">
-          <FinishesPanel project={real ? project : null} view={shown} current={current} />
+          <FinishesPanel project={real ? project : null} view={shown} current={current} rooms={rooms} setRoomId={setRoomId} />
           <CustomizePanel project={real ? project : null} view={shown} current={current} rooms={rooms} setRoomId={setRoomId} />
           <SketchTools />
         </aside>
@@ -218,6 +219,12 @@ function DashNav({ onProjects }: { onProjects: () => void }) {
         ))}
       </nav>
       <div className="drag" />
+      <button className="icon-btn" aria-label="Projects" data-tip="Open, recent and templates" onClick={onProjects}>
+        <FolderOpen />
+      </button>
+      <button className="icon-btn" aria-label={theme === 'dark' ? 'Light theme' : 'Dark theme'} data-tip={theme === 'dark' ? 'Light theme' : 'Dark theme'} onClick={() => set({ theme: theme === 'dark' ? 'light' : 'dark' })}>
+        {theme === 'dark' ? <Sun /> : <Moon />}
+      </button>
       <button className="icon-btn" aria-label="Settings" data-tip="Settings" onClick={() => useUI.getState().openDialog('settings')}>
         <Settings />
       </button>
@@ -259,7 +266,7 @@ const FLOORS: { v: FloorsOption; label: string }[] = [
 ]
 const STYLE_CHOICES: { v: ArchitecturalStyle | 'mix'; label: string }[] = [
   { v: 'mix', label: 'Mix of styles' },
-  ...(['luxury', 'contemporary', 'european', 'minimalist', 'traditional', 'modern', 'mediterranean', 'colonial', 'islamic', 'farmhouse', 'industrial', 'pakistani_modern'] as ArchitecturalStyle[]).map((v) => ({ v, label: STYLE_TITLE[v] }))
+  ...(['luxury', 'luxury_classic', 'contemporary', 'european', 'minimalist', 'traditional', 'modern', 'mediterranean', 'colonial', 'islamic', 'farmhouse', 'industrial', 'pakistani_modern'] as ArchitecturalStyle[]).map((v) => ({ v, label: STYLE_TITLE[v] }))
 ]
 const metric = (u: UnitSystem) => u === 'm' || u === 'cm'
 const num = (m: number, u: UnitSystem) => (metric(u) ? m : m / FT)
@@ -341,10 +348,11 @@ function SetupPanel(props: { project: Project | null; onDesigns: (d: DesignOptio
         r.outdoor.backLawn = v
       }) },
     { label: 'Pillars', on: !!req.special.pillars, set: (v) => w.setReq((r) => void (r.special.pillars = v)) },
-    { label: 'Pool', on: req.outdoor.pool, set: (v) => w.setReq((r) => void (r.outdoor.pool = v)) }
+    { label: 'Pool', on: req.outdoor.pool, set: (v) => w.setReq((r) => void (r.outdoor.pool = v)) },
+    { label: 'Double height', on: req.special.doubleHeightLounge, set: (v) => w.setReq((r) => void (r.special.doubleHeightLounge = v)) }
   ]
   const roomList = props.project ? props.project.floors.flatMap((f) => f.rooms.filter((r) => !['void', 'corridor', 'foyer', 'stair', 'mumty', 'balcony', 'terrace', 'lift'].includes(r.type) && !spec(r.type).outdoor)) : []
-  const fmt = (m: number) => (metric(dimUnits) ? (Math.round(m * 10) / 10).toString() : `${Math.round(m / FT)}′`)
+  const fmt = (m: number) => (metric(dimUnits) ? (Math.round(m * 10) / 10).toString() : formatLength(m, 'ft-in', { compact: true }))
   const reqRow = (icon: JSX.Element, label: string, control: JSX.Element) => (
     <div className="req-row">
       <span className="req-label">
@@ -528,12 +536,13 @@ function SetupPanel(props: { project: Project | null; onDesigns: (d: DesignOptio
 /* ── centre: hero (live 3D with editing tools) ───────────────────────────── */
 
 type HeroView = 'exterior' | 'interior' | 'top'
-type ExtCam = 'drone' | 'street' | 'orbit' | 'front' | 'back' | 'left' | 'right'
+type ExtCam = 'drone' | 'street' | 'facade' | 'orbit' | 'front' | 'back' | 'left' | 'right'
 type HeroTool = 'select' | 'move' | 'rotate' | 'resize'
 
 const EXT_CAMS: { key: ExtCam; label: string }[] = [
   { key: 'drone', label: 'Drone view' },
   { key: 'street', label: 'Street view' },
+  { key: 'facade', label: 'Front facade' },
   { key: 'orbit', label: 'Orbit (turning)' },
   { key: 'front', label: 'Front' },
   { key: 'back', label: 'Back' },
@@ -632,7 +641,7 @@ function Hero({ project, real, onRoom }: { project: Project | null; real: boolea
         e.flyTo(new THREE.Vector3(c.x + s * 1.1, c.y + s * 0.62, c.z + s * 1.3), c, 0)
         e.controls.autoRotate = true
         e.controls.autoRotateSpeed = 0.35
-      } else e.setCameraPreset(cam as 'front' | 'back' | 'left' | 'right', undefined, false)
+      } else e.setCameraPreset(cam as 'facade' | 'front' | 'back' | 'left' | 'right', undefined, false)
     } else if (view === 'interior') {
       const r = rooms.find((x) => x.r.id === cam) ?? rooms.find((x) => ['tv_lounge', 'living', 'drawing'].includes(x.r.type)) ?? rooms[0]
       if (r) {
@@ -760,8 +769,10 @@ function Hero({ project, real, onRoom }: { project: Project | null; real: boolea
       } },
     { k: 'measure', label: 'Measure', icon: <Ruler />, run: () => {
         if (!real) return useUI.getState().toast({ kind: 'info', title: 'Generate or open a house first' })
-        useUI.getState().set({ screen: 'workspace', tool: 'measure' })
+        // switching mode resets the tool, so pick the tool after
+        useUI.getState().set({ screen: 'workspace' })
         setMode('plan')
+        useUI.getState().set({ tool: 'measure' })
       } },
     { k: 'undo', label: 'Undo', icon: <Undo2 />, run: () => useProject.getState().undo(), disabled: !canUndo },
     { k: 'redo', label: 'Redo', icon: <Redo2 />, run: () => useProject.getState().redo(), disabled: !canRedo }
@@ -1036,6 +1047,9 @@ function DesignCard({ d, on, onSelect }: { d: DesignOption; on: boolean; onSelec
         <span className="faint">
           {size} | {s.floors} Floors | {s.bedrooms} BHK
         </span>
+        <span className="faint">
+          {s.bathrooms} bath, {formatAreaFor(s.totalFloorArea, 'ft-in')}
+        </span>
         <button className={`btn sm ${on ? '' : 'primary'}`} onClick={onSelect} disabled={on}>
           {on ? 'Selected' : 'Select'}
         </button>
@@ -1117,11 +1131,11 @@ const SWATCHES: Record<string, { id: string; name: string }[]> = {
     { id: 'lib:terrazzo-classic', name: 'Terrazzo' }
   ]
 }
-const MAT_TABS = [
-  { key: 'marble', label: 'Marble / Stone' },
-  { key: 'wood', label: 'Wood' },
-  { key: 'tiles', label: 'Tiles' },
-  { key: 'other', label: 'Others' }
+const MAT_TABS: { key: string; label: string; cats: MaterialCategory[] }[] = [
+  { key: 'marble', label: 'Marble / Stone', cats: ['marble', 'granite', 'stone'] },
+  { key: 'wood', label: 'Wood', cats: ['wood'] },
+  { key: 'tiles', label: 'Tiles', cats: ['ceramic', 'porcelain'] },
+  { key: 'other', label: 'Others', cats: ['paint', 'wallpaper', 'concrete', 'brick', 'fabric'] }
 ]
 
 interface RoomPick {
@@ -1129,8 +1143,9 @@ interface RoomPick {
   r: Room
 }
 
-function FinishesPanel(props: { project: Project | null; view: Project | null; current?: RoomPick }) {
+function FinishesPanel(props: { project: Project | null; view: Project | null; current?: RoomPick; rooms: RoomPick[]; setRoomId: (id: string) => void }) {
   const [tab, setTab] = useState('marble')
+  const [all, setAll] = useState(false)
   const [surface, setSurface] = useState<'floor' | 'walls'>('floor')
   const [preview, setPreview] = useState<string | null>(null)
   const file = useRef<HTMLInputElement>(null)
@@ -1170,6 +1185,10 @@ function FinishesPanel(props: { project: Project | null; view: Project | null; c
       clearTimeout(t)
     }
   }, [sig, props.view?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  // the curated swatches, or every library material in the category (plus the user's uploads)
+  const cats = MAT_TABS.find((t) => t.key === tab)!.cats
+  const extra = all ? [...LIBRARY, ...(props.project?.materials ?? [])].filter((m) => cats.includes(m.category) && !SWATCHES[tab].some((x) => x.id === m.id)).map((m) => ({ id: m.id, name: m.name })) : []
+  const swatches = [...SWATCHES[tab], ...extra]
   const curId = cur ? (surface === 'floor' ? (cur.r.floorMaterial ?? spec(cur.r.type).floorFinish) : (cur.r.wallMaterial ?? spec(cur.r.type).wallFinish)) : undefined
   return (
     <section className="dash-card">
@@ -1184,8 +1203,8 @@ function FinishesPanel(props: { project: Project | null; view: Project | null; c
           </button>
         ))}
       </div>
-      <div className="fin-grid">
-        {SWATCHES[tab].map((s) => (
+      <div className={`fin-grid ${all ? 'all' : ''}`}>
+        {swatches.map((s) => (
           <FinSwatch key={s.id} id={s.id} name={s.name} on={curId === s.id} onClick={() => apply(s.id, s.name)} />
         ))}
         <button className="fin-swatch upload" onClick={() => file.current?.click()} data-tip="Upload your own photo">
@@ -1207,11 +1226,22 @@ function FinishesPanel(props: { project: Project | null; view: Project | null; c
             } else useUI.getState().toast({ kind: 'success', title: `${def.name} added to My materials`, body: 'Generate or open a house to apply it.' })
           }} />
       </div>
+      <button className="link-btn fin-more" onClick={() => setAll((v) => !v)}>
+        <LayoutGrid size={12} /> {all ? 'Show fewer' : `Show all ${MAT_TABS.find((t) => t.key === tab)!.label.toLowerCase()} materials`}
+      </button>
       <div className="fin-preview" style={preview ? { backgroundImage: `url("${preview}")` } : undefined}>
         {!preview && props.view && <span className="spinner" />}
         <div className="fin-foot">
           <span className="applied">
-            Applied to: <b>{cur ? `${cur.r.name} ${surface === 'floor' ? 'Floor' : 'Walls'}` : '—'}</b>
+            Applied to:{' '}
+            <select className="field" value={cur?.r.id ?? ''} onChange={(e) => props.setRoomId(e.target.value)} aria-label="Room the finish goes on">
+              {props.rooms.map(({ f, r }) => (
+                <option key={r.id} value={r.id}>
+                  {r.name} ({f.name.toLowerCase()})
+                </option>
+              ))}
+            </select>{' '}
+            <b>{surface === 'floor' ? 'Floor' : 'Walls'}</b>
           </span>
           <button className="btn sm" onClick={changeMaterial}>
             Change Material
@@ -1375,12 +1405,20 @@ function SketchTools() {
     useUI.getState().set({ screen: 'workspace' })
     setMode('sketch')
   }
+  const plan = (tool: 'room' | 'measure') => {
+    if (!hasHouse(getProject())) return useUI.getState().toast({ kind: 'info', title: 'Generate or open a house first', body: 'Or use Free Draw or Rectangle to sketch a new plan.' })
+    useUI.getState().set({ screen: 'workspace' })
+    setMode('plan')
+    useUI.getState().set({ tool, ...(tool === 'room' ? { toolOption: 'bedroom' } : {}) })
+  }
   const tools: { label: string; icon: JSX.Element; tip: string; run: () => void }[] = [
     { label: 'Free Draw', icon: <Pencil />, tip: 'Draw walls and rooms by hand', run: () => open('pen') },
     { label: 'Rectangle', icon: <Square />, tip: 'Drag out a room', run: () => open('rect') },
     { label: 'Circle', icon: <Circle />, tip: 'A small circle becomes a round pillar', run: () => open('circle') },
     { label: 'Text', icon: <Type />, tip: 'Label a room, e.g. "Kitchen" or "12x14"', run: () => open('text') },
-    { label: 'Erase', icon: <Eraser />, tip: 'Rub out strokes and labels', run: () => open('eraser') }
+    { label: 'Erase', icon: <Eraser />, tip: 'Rub out strokes and labels', run: () => open('eraser') },
+    { label: 'Draw Room', icon: <LayoutGrid />, tip: 'Drag out a new room straight in the plan', run: () => plan('room') },
+    { label: 'Measure', icon: <Ruler />, tip: 'Measure any distance in the plan', run: () => plan('measure') }
   ]
   return (
     <section className="dash-card">

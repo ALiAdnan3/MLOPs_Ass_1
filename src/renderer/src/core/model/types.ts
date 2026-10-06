@@ -384,6 +384,7 @@ export type ArchitecturalStyle =
   | 'minimalist'
   | 'traditional'
   | 'luxury'
+  | 'luxury_classic'
   | 'islamic'
   | 'mediterranean'
   | 'european'

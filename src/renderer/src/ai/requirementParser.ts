@@ -56,6 +56,7 @@ const STYLE_WORDS: [RegExp, ArchitecturalStyle][] = [
   [/ultra[-\s]*modern|modern/, 'modern'],
   [/contemporary/, 'contemporary'],
   [/minimal(ist)?/, 'minimalist'],
+  [/marble\s*(luxury|villa|house|facade)|classic(al)?\s*luxur(y|ious)/, 'luxury_classic'],
   [/traditional|classic\b/, 'traditional'],
   [/luxur(y|ious)|palatial/, 'luxury'],
   [/islamic|mughal/, 'islamic'],
@@ -236,7 +237,7 @@ export function parseRequirements(text: string, base: Requirements): ParsedRequi
     if (m) {
       req.style = style
       found(m[0], `${style.replace('_', ' ')} style`)
-      if (style === 'luxury') req.preferences.luxury = Math.max(req.preferences.luxury, 80)
+      if (style === 'luxury' || style === 'luxury_classic') req.preferences.luxury = Math.max(req.preferences.luxury, 80)
       break
     }
   }

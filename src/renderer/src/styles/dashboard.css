@@ -1197,3 +1197,42 @@
     font-size: 9.5px;
   }
 }
+
+/* restored from the first dashboard: full material library, room choice in the preview */
+.fin-grid.all {
+  max-height: 232px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.fin-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: -4px 0 8px;
+}
+.fin-foot .applied select.field {
+  display: inline-block;
+  width: auto;
+  max-width: 140px;
+  flex: none;
+  height: 24px;
+  padding: 0 4px;
+  vertical-align: middle;
+}
+.sketch-tools {
+  row-gap: 5px;
+}
+.fin-foot .applied {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: visible;
+}
+.fin-foot .applied select.field {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+}
+.fin-foot .applied b {
+  flex: none;
+}
