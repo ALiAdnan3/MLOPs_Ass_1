@@ -8,6 +8,7 @@ import { Dashboard } from '../screens/Dashboard'
 import { Wizard } from '../screens/Wizard'
 import { Designs } from '../screens/Designs'
 import { Workspace } from '../workspace/Workspace'
+import { Showcase } from '../screens/Showcase'
 import { DialogHost } from '../dialogs/DialogHost'
 import { useShortcuts } from './shortcuts'
 
@@ -45,6 +46,7 @@ export function App() {
         {screen === 'wizard' && <Wizard />}
         {screen === 'designs' && <Designs />}
         {screen === 'workspace' && <Workspace />}
+        {screen === 'showcase' && <Showcase />}
       </ErrorBoundary>
       <TooltipLayer />
       <ContextMenuHost />

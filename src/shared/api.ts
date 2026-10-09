@@ -1,3 +1,4 @@
+import type { AiImageRequest, AiImageResponse, ImageModelId, ImageQuality } from './aiImage'
 /** Contract between the Electron main process (via preload) and the renderer. */
 
 export interface FileResult {
@@ -27,6 +28,11 @@ export interface AppSettings {
   uiMode: 'beginner' | 'advanced'
   aiProvider: 'offline' | 'claude'
   hasApiKey: boolean
+  /** An OpenAI key is saved for AI photos (amendment A9). */
+  hasOpenAiKey?: boolean
+  /** GPT Image model and quality for AI photos. */
+  imageModel?: ImageModelId
+  imageQuality?: ImageQuality
   /** ANGLE backend on Windows (amendment A6): 'auto' keeps Direct3D; the path tracer needs OpenGL or Vulkan. Applied at start-up. */
   graphicsBackend?: 'auto' | 'opengl' | 'vulkan'
   autosaveSeconds: number
@@ -74,8 +80,10 @@ export interface HomeForgeAPI {
   showInFolder(path: string): Promise<void>
   recent: { list(): Promise<RecentProject[]>; add(entry: RecentProject): Promise<void>; remove(path: string): Promise<void> }
   autosave: { write(id: string, name: string, data: ArrayBuffer): Promise<void>; list(): Promise<AutosaveEntry[]>; read(id: string): Promise<ArrayBuffer | null>; remove(id: string): Promise<void> }
-  settings: { get(): Promise<AppSettings>; set(patch: Partial<AppSettings>): Promise<AppSettings>; setApiKey(key: string | null): Promise<AppSettings> }
+  settings: { get(): Promise<AppSettings>; set(patch: Partial<AppSettings>): Promise<AppSettings>; setApiKey(key: string | null): Promise<AppSettings>; setOpenAiKey(key: string | null): Promise<AppSettings> }
   ai(req: AiRequest): Promise<AiResponse>
+  /** AI photo of a render (amendment A9), with the user's OpenAI key. */
+  aiImage(req: AiImageRequest): Promise<AiImageResponse>
   setTitleBarTheme(theme: 'dark' | 'light'): void
   log(level: 'info' | 'warn' | 'error', message: string): void
   onOpenFile(cb: (path: string) => void): () => void

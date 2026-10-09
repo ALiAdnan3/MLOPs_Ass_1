@@ -104,6 +104,7 @@ export function TitleBar() {
       { label: 'Image of the current view', onClick: () => openDialog('export', { preset: 'image' }) },
       { label: 'Walkthrough video', onClick: () => setMode('drone') },
       { label: 'House presentation', onClick: () => setMode('present') },
+      { label: 'Home showcase and brochure (PDF)', onClick: () => set({ screen: 'showcase' }) },
       { label: 'Project file (.homeforge)', onClick: () => void saveProject(true) }
     ]
   }

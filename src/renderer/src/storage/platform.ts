@@ -1,3 +1,4 @@
+import type { AiImageResponse } from '../../../shared/aiImage'
 import type { AiRequest, AiResponse, AppSettings, AutosaveEntry, ExportFile, FileResult, HomeForgeAPI, RecentProject } from '../../../shared/api'
 
 /**
@@ -137,10 +138,16 @@ const browser: HomeForgeAPI = {
     },
     async setApiKey() {
       return browser.settings.get()
+    },
+    async setOpenAiKey() {
+      return browser.settings.get()
     }
   },
   async ai(_req: AiRequest): Promise<AiResponse> {
     return { ok: false, error: 'Claude is available in the desktop app. The built-in assistant is handling this.' }
+  },
+  async aiImage(): Promise<AiImageResponse> {
+    return { ok: false, error: 'AI photos are available in the desktop app, with your OpenAI key.' }
   },
   setTitleBarTheme() {},
   log(level, message) {

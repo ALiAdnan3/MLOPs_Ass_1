@@ -70,7 +70,7 @@ export class Engine {
   nightLights = new THREE.Group()
   helpers = new THREE.Group()
   sun = new THREE.DirectionalLight('#fff3e0', 3)
-  hemi = new THREE.HemisphereLight('#dfe9f5', '#6b6a58', 0.9)
+  hemi = new THREE.HemisphereLight('#dfe9f5', '#847d71', 0.9)
   sky = new GradientSky()
   stars: THREE.Points
   project: Project | null = null
@@ -401,7 +401,7 @@ export class Engine {
     const dusk = Math.max(0, 1 - Math.abs(night - 0.55) / 0.45)
     this.hemi.intensity = 0.12 + (1 - night) * 0.38 + dusk * 0.32 + night * 0.08
     this.hemi.color.set(night > 0.5 ? '#3a4a6a' : '#dfe9f5')
-    this.hemi.groundColor.set(night > 0.5 ? '#1a1a1e' : '#6b6a58')
+    this.hemi.groundColor.set(night > 0.5 ? '#1a1a1e' : '#847d71')
     this.sky.update(new THREE.Vector3(d.x, d.y, d.z), warm, night)
     this.skyState = { warm, night }
     this.sky.visible = true

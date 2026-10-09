@@ -47,7 +47,8 @@ import {
   Scan,
   SlidersHorizontal,
   Keyboard,
-  LayoutGrid
+  LayoutGrid,
+  Images
 } from 'lucide-react'
 import { useUI } from '../state/ui'
 import { useProject, commit, getProject } from '../state/store'
@@ -194,6 +195,7 @@ function DashNav({ onProjects }: { onProjects: () => void }) {
     { label: 'Generate Designs', icon: <Sparkles />, run: () => set({ screen: 'wizard' }) },
     { label: '3D View', icon: <Box />, run: () => go('3d') },
     { label: 'Video Tour', icon: <Video />, run: () => go('drone') },
+    { label: 'Showcase', icon: <Images />, run: () => (real ? set({ screen: 'showcase' }) : go('plan')) },
     { label: 'Materials', icon: <Palette />, run: () => go('materials') },
     { label: 'Save / Export', icon: <Save />, run: () => (real ? useUI.getState().openDialog('export') : go('plan')) }
   ]
@@ -843,6 +845,9 @@ function Hero({ project, real, onRoom }: { project: Project | null; real: boolea
             ))}
           </div>
           <div className="grow" />
+          <button className="icon-btn" aria-label="Explore every area" data-tip="Explore every area: kitchen, lounge, bedrooms, bathrooms…" disabled={!real} onClick={() => useUI.getState().set({ screen: 'showcase' })}>
+            <Images />
+          </button>
           <button className="icon-btn" aria-label="Photoreal render" data-tip="Photoreal render" onClick={() => useUI.getState().openDialog('photoreal')}>
             <Aperture />
           </button>

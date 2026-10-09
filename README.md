@@ -10,7 +10,7 @@ Everything comes from one structured house model. The 2D plan, 3D view, elevatio
 
 ![Design dashboard](docs/screenshots/dashboard.png)
 
-The home screen is a design dashboard. Set the plot and requirements on the left, then generate five designs, each in its own style. The chosen house appears live in 3D, where you can select, move, rotate, resize and measure, switch between exterior, interior and top views, and change the time of day. Its rendered floor plans and 3D cut-away sit beneath. Try finishes on any room's floor or walls with a preview, set its exact size, play a drone or interior tour, or jump into any tool. Additions to the original spec are listed in [docs/AMENDMENTS.md](docs/AMENDMENTS.md).
+The home screen is a design dashboard. Set the plot and requirements on the left, then generate five designs, each in its own style. The chosen house appears live in 3D, where you can select, move, rotate, resize and measure, switch between exterior, interior and top views, and change the time of day. Its rendered floor plans and 3D cut-away sit beneath. Try finishes on any room's floor or walls with a preview, set its exact size, play a drone or interior tour, or jump into any tool. The **Home Showcase** presents the house like a property brochure, with its key features and a picture of every room. Any picture can be explored in 3D, path-traced, or turned into a magazine-quality AI photo with your own OpenAI key, and the whole showcase saves as a PDF brochure. Additions to the original spec are listed in [docs/AMENDMENTS.md](docs/AMENDMENTS.md).
 
 The workspace puts the 2D plan and the 3D view side by side, with tools, layers, floors, materials, recent projects and the assistant one click away.
 

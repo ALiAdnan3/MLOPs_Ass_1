@@ -133,3 +133,38 @@ Extends the design dashboard (pass 4) to match `docs/reference/dashboard-referen
 - **Classic Luxury (Marble)** keeps the original luxury look as its own style: Botticino marble cladding, brass window frames, classical columns and a flat roof. It sits next to the new Modern Luxury Villa in the wizard, the Exterior panel, the dashboard style list, the text parser ("classic luxury", "marble villa") and the AI edit commands.
 - Fix: dashboard shortcuts into a plan tool (Measure, Draw Room) no longer fall back to Select when switching modes.
 - Verified: the dashboard check grows to 42 cases, all passing.
+
+## A9. Home Showcase, AI photos and the PDF brochure
+
+Extends §10 (realistic view), §49 (presentation) and §54 (concept images). §54 was previously limited because no image-generation model was bundled.
+
+- **Home Showcase** opens from the dashboard (the Showcase tab, or the gallery button on the 3D view) and from Export in the workspace. It presents the house as a property brochure:
+  - A header with the style ("Modern Luxury Home"), a tagline, BHK, floors and covered area, and the plot size, for example "1 Kanal (500 sq yds)".
+  - A hero picture of the front of the house.
+  - **Key Features**, worked out from the actual design. These include bedrooms (and whether bathrooms are attached), guest room, kitchens (main and dirty), living areas, dining, basement uses, patio or courtyard, balconies, terraces, parking with the number of cars, lawn and garden area, and pool, prayer room, study, gym, home theatre, double-height lounge, servant quarter, laundry, lift and rooftop solar.
+  - **Explore Every Area:** a picture of every area. That is the front, aerial and rear views, entrance, TV lounge, drawing and dining rooms, family lounge, kitchen, every bedroom and bathroom, garage or car porch, balconies and terraces, staircase, basement rooms, and the lawn, patio and pool. Filters group them as Exterior, Living & dining, Kitchen, Bedrooms, Bathrooms, Garage & parking, Terraces & garden, Basement and More rooms. Day or evening light can be set separately for the outside and for the rooms.
+- **Camera placement.** Each room is photographed the way a photographer would:
+  - The camera stands near the edge of the room, clear of walls, furniture, columns and door swings, and looks across at the furniture.
+  - Doors are shut for interior shots.
+  - Balconies look outwards, and the garden is seen from above the tree tops.
+  - A unit test checks that every interior camera is inside its room and never inside a tall piece of furniture.
+- **Large viewer.** Any picture opens full screen, with arrow keys to step through the areas. From there you can:
+  - **Look around in 3D**, the live model, starting from the same camera.
+  - **Photoreal render**, path-traced as in A6.
+  - **Make AI photo.**
+  - **Save image.**
+  - **Open in 3D editor**, at the same camera.
+- **AI photos.** The app's own render of an area goes to an OpenAI GPT Image model as the image to edit, so the result keeps the real layout.
+  - **Styles:** *Brochure staging*, the default, dresses rooms like a luxury property brochure: designer furniture of the same size and place, rugs, cushions, art, plants and lamps, and lush planting and lighting outside. Walls, windows, doors, storeys and the main furniture positions are kept. *As designed* changes realism only and adds nothing.
+  - **Batch:** "AI photos for all areas" makes them three at a time, after showing how many will be charged. It stops at once on a key or billing error.
+  - **Storage:** results are kept with the project. They appear on the area's card, on the concept board, in the presentation and in the brochure.
+  - **Settings:** AI photos has the OpenAI key (encrypted on this computer, used only from the main process), the model (GPT Image 2 by default; GPT Image 2.5 Sunburst or Flare, from September 2026, are offered with extra-high quality; GPT Image 1.5 too) and the quality.
+  - **Accuracy:** the request uses only the parameters each model accepts. GPT Image 2 always reads input at high fidelity, so `input_fidelity` is sent only to the other models, and extra-high quality only to the 2.5 models. These were taken from the official `openai` SDK's type definitions.
+  - **Honesty:** the viewer labels AI photos as impressions made from the model, and says the drawings are what gets built.
+- **Save brochure (PDF):** an A4 brochure with the header, hero, key features and every area, three across. It uses AI photos where they exist.
+- **Verified:**
+  - `e2e/showcase.py`: 18 checks in the browser.
+  - `e2e/ai_photo_mock.py`: 14 checks in the real desktop app. It talks to a local stand-in for the OpenAI endpoint, which the SDK reaches through `OPENAI_BASE_URL`. The checks cover the endpoint, key, model, quality, size, the lossless PNG render attached, the prompt, the result shown and kept, and a batch of four.
+  - `tests/showcase.test.ts`: 8 unit tests.
+- **Not verified here:** no live OpenAI call was made, because that needs the user's key and is charged to their account. The real result depends on OpenAI's model.
+- Rendering fix found on the way: the sky's below-horizon colour was olive, which tinted every ceiling green through the environment lighting. It is now a neutral earth tone.

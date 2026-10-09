@@ -27,9 +27,11 @@ const api: HomeForgeAPI = {
   settings: {
     get: () => ipcRenderer.invoke('hf:settings-get'),
     set: (p) => ipcRenderer.invoke('hf:settings-set', p),
-    setApiKey: (k) => ipcRenderer.invoke('hf:set-api-key', k)
+    setApiKey: (k) => ipcRenderer.invoke('hf:set-api-key', k),
+    setOpenAiKey: (k) => ipcRenderer.invoke('hf:set-openai-key', k)
   },
   ai: (req) => ipcRenderer.invoke('hf:ai', req),
+  aiImage: (req) => ipcRenderer.invoke('hf:ai-image', req),
   relaunch: () => ipcRenderer.invoke('hf:relaunch'),
   setTitleBarTheme: (t) => ipcRenderer.send('hf:title-theme', t),
   log: (level, message) => ipcRenderer.send('hf:log', level, message),

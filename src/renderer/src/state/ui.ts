@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { EntityRef, Quality, SurfaceRef, Vec2 } from '../core/model/types'
 
-export type Screen = 'home' | 'wizard' | 'designs' | 'workspace'
+export type Screen = 'home' | 'wizard' | 'designs' | 'workspace' | 'showcase'
 export type Mode = 'plan' | 'sketch' | '3d' | 'materials' | 'interior' | 'exterior' | 'walk' | 'drone' | 'present'
 export type Tool =
   | 'select'

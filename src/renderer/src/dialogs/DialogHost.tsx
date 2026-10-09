@@ -8,6 +8,7 @@ import type { AppSettings } from '../../../shared/api'
 import { LengthField } from '../ui/primitives'
 import { configureAutosave } from '../storage/session'
 import { useWizard } from '../screens/wizardState'
+import { IMAGE_MODELS, type ImageModelId, type ImageQuality } from '../../../shared/aiImage'
 
 const ExportDialog = lazy(() => import('./ExportDialog').then((m) => ({ default: m.ExportDialog })))
 const ImportPlanDialog = lazy(() => import('./ImportPlan').then((m) => ({ default: m.ImportPlanDialog })))
@@ -60,6 +61,7 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
   const s = useProject((x) => x.project.settings)
   const [app, setApp] = useState<AppSettings | null>(null)
   const [key, setKey] = useState('')
+  const [oaKey, setOaKey] = useState('')
   const set = useUI((x) => x.set)
   useEffect(() => {
     platform.settings.get().then(setApp)
@@ -167,6 +169,52 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
               ) : (
                 <p className="faint" style={{ fontSize: 12 }}>
                   Claude can be connected in the desktop app.
+                </p>
+              )}
+              <div className="section-title" style={{ marginTop: 18 }}>
+                AI photos
+              </div>
+              <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+                Optional. In the Home Showcase, any area can be turned into a photographic image by an OpenAI GPT Image model, starting from this app's own render so the layout stays as designed. Each photo is charged to your OpenAI account. The key is encrypted on this computer and only sent to OpenAI, with the render.
+              </p>
+              {isDesktop ? (
+                <>
+                  <div className="prop">
+                    <label>OpenAI API key</label>
+                    <div className="row">
+                      <input className="field" type="password" aria-label="OpenAI API key" placeholder={app.hasOpenAiKey ? 'A key is saved' : 'sk-…'} value={oaKey} onChange={(e) => setOaKey(e.target.value)} />
+                      <button className="btn" disabled={!oaKey} onClick={async () => {
+                          setApp(await platform.settings.setOpenAiKey(oaKey.trim()))
+                          setOaKey('')
+                          useUI.getState().toast({ kind: 'success', title: 'OpenAI key saved', body: 'AI photos are ready in the Home Showcase.' })
+                        }}>
+                        Save
+                      </button>
+                      {app.hasOpenAiKey && (
+                        <button className="btn ghost" onClick={async () => setApp(await platform.settings.setOpenAiKey(null))}>
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="prop">
+                    <label>Image model</label>
+                    <select className="field" aria-label="Image model" value={app.imageModel ?? 'gpt-image-2'} onChange={async (e) => setApp(await platform.settings.set({ imageModel: e.target.value as ImageModelId }))}>
+                      {IMAGE_MODELS.map((m) => (
+                        <option key={m.id} value={m.id} title={m.tip}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="prop">
+                    <label>Photo quality</label>
+                    <Seg value={app.imageQuality ?? 'high'} onChange={async (v) => setApp(await platform.settings.set({ imageQuality: v as ImageQuality }))} options={[{ value: 'medium', label: 'Medium', tip: 'Faster and cheaper' }, { value: 'high', label: 'High' }, { value: 'xhigh', label: 'Extra high', tip: 'GPT Image 2.5 models only; others use High' }]} />
+                  </div>
+                </>
+              ) : (
+                <p className="faint" style={{ fontSize: 12 }}>
+                  AI photos are available in the desktop app.
                 </p>
               )}
             </>

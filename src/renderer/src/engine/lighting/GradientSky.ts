@@ -16,7 +16,7 @@ export class GradientSky extends THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMa
       uniforms: {
         top: { value: new THREE.Color('#3f7fca') },
         horizon: { value: new THREE.Color('#cfe1ef') },
-        ground: { value: new THREE.Color('#58604f') },
+        ground: { value: new THREE.Color('#6b655b') },
         sunDir: { value: new THREE.Vector3(0, 1, 0) },
         sunColor: { value: new THREE.Color('#fff4dc') },
         glow: { value: 0.35 },
@@ -62,7 +62,7 @@ export class GradientSky extends THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMa
     const hor = day.horizon.clone().lerp(gold.horizon, warm).lerp(dusk.horizon, night)
     ;(u.top.value as THREE.Color).copy(top)
     ;(u.horizon.value as THREE.Color).copy(hor)
-    ;(u.ground.value as THREE.Color).copy(new THREE.Color('#5a614f').lerp(new THREE.Color('#0c1018'), night))
+    ;(u.ground.value as THREE.Color).copy(new THREE.Color('#6b655b').lerp(new THREE.Color('#0c1018'), night))
     ;(u.sunDir.value as THREE.Vector3).copy(sun).normalize()
     ;(u.sunColor.value as THREE.Color).copy(new THREE.Color('#fff3da').lerp(new THREE.Color('#ffb46a'), warm))
     u.glow.value = (0.25 + warm * 0.55) * (1 - night)

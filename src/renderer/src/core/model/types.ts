@@ -583,6 +583,9 @@ export interface ConceptImage {
   assetId: ID
   createdAt: number
   prompt?: string
+  /** Home Showcase area the image belongs to (amendment A9), e.g. 'room-<id>' or 'ext-front'. */
+  areaKey?: string
+  source?: 'ai-photo' | 'photoreal'
 }
 
 // ─── Requirements (wizard) ──────────────────────────────────────────────────

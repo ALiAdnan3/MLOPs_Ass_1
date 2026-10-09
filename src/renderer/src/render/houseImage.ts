@@ -21,6 +21,8 @@ export interface HouseImageOptions {
   floorId?: string
   /** 'dollhouse' cuts the active floor open (3D floor plan). */
   viewMode?: 'realistic' | 'dollhouse' | 'architectural'
+  /** Door leaves drawn open (default) or shut, as in an interior photograph. */
+  doorsOpen?: boolean
 }
 
 export function renderHouseImage(p: Project, opts: HouseImageOptions = { width: 480, height: 300 }): Promise<string> {
@@ -31,7 +33,7 @@ export function renderHouseImage(p: Project, opts: HouseImageOptions = { width: 
     e.holds++
     try {
       const ground = sortedFloors(p.floors).find((f) => f.level === 0) ?? p.floors[0]
-      e.update(p, { floorId: opts.floorId ?? ground?.id ?? '', showAll: true, viewMode: opts.viewMode ?? 'realistic', explodeGap: 0, doorsOpen: true, showFurniture: true, showStructure: true })
+      e.update(p, { floorId: opts.floorId ?? ground?.id ?? '', showAll: true, viewMode: opts.viewMode ?? 'realistic', explodeGap: 0, doorsOpen: opts.doorsOpen ?? true, showFurniture: true, showStructure: true })
       const c = e.houseCenter()
       const b = bbox(p.plot.polygon)
       const size = Math.max(b.w, b.h)

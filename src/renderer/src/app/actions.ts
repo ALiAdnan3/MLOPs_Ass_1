@@ -38,7 +38,7 @@ function defaultName(plot: Plot) {
   return pre ? `${pre.label} House` : 'My Dream House'
 }
 
-export function openProject(p: Project, filePath: string | null = null, screen: 'workspace' | 'home' = 'workspace') {
+export function openProject(p: Project, filePath: string | null = null, screen: 'workspace' | 'home' | 'showcase' = 'workspace') {
   useAssets.getState().clear()
   useProject.getState().load(p, filePath)
   const g = sortedFloors(p.floors).find((f) => f.level === 0) ?? p.floors[0]
@@ -129,7 +129,7 @@ export async function startTemplate(templateId: string) {
 
 /** The first-run demo (§63): a finished 10 marla house with materials, furniture, garden and garage. */
 /** `screen: 'home'` keeps the dashboard on show (it displays the house itself). */
-export async function openDemoHouse(screen: 'workspace' | 'home' = 'workspace') {
+export async function openDemoHouse(screen: 'workspace' | 'home' | 'showcase' = 'workspace') {
   const ui = useUI.getState()
   ui.set({ busy: 'Preparing the demo house…' })
   try {

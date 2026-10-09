@@ -118,4 +118,4 @@ Verification: `npm test` (37 unit tests), `e2e/tour.py`, `e2e/wizard.py` and `e2
 - [x] A5 Optional Claude vision reads hand-written room names and sizes on sketches and plan photos (offline path unchanged)
 - [x] A6 Photoreal path-traced render (sizes to 4K, clay style, save or add to the concept board); needs the OpenGL graphics backend on Windows, switchable in Settings or from the dialog
 - [x] A7 Every generated bathroom is usable (WC fits; never under 3′9″ wide or 1.9 m²), with fewer, shared bathrooms when a plot is too tight
-
+- [x] Home Showcase (A9): property-brochure page with key features from the design, a picture of every area (kitchen, TV lounge, each bedroom and bathroom, garage, terraces, garden, exterior), filters, day/evening light, full-screen viewer with look-around, photoreal and AI photos (OpenAI GPT Image, brochure staging or as designed, one or all areas), PDF brochure

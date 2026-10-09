@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { ExportFile, FileResult } from '../shared/api'
 import { runAi } from './ai'
+import { runAiImage } from './aiImage'
 import * as store from './storage'
 
 /**
@@ -147,6 +148,11 @@ function registerIpc() {
   ipcMain.handle('hf:settings-set', (_e, patch) => store.settingsSet(patch))
   ipcMain.handle('hf:set-api-key', (_e, key: string | null) => store.setApiKey(key))
   ipcMain.handle('hf:ai', async (_e, req) => runAi(await store.getApiKey(), req))
+  ipcMain.handle('hf:set-openai-key', (_e, key: string | null) => store.setOpenAiKey(key))
+  ipcMain.handle('hf:ai-image', async (_e, req) => {
+    const s = await store.settingsGet()
+    return runAiImage(await store.getOpenAiKey(), s.imageModel ?? 'gpt-image-2', s.imageQuality ?? 'high', req)
+  })
   ipcMain.on('hf:title-theme', (_e, theme: 'dark' | 'light') => {
     try {
       win?.setTitleBarOverlay({ ...(theme === 'dark' ? DARK : LIGHT), height: 56 })

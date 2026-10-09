@@ -82,8 +82,10 @@ export async function autosaveRemove(id: string) {
 }
 
 // ── settings & API key ──────────────────────────────────────────────────────
-interface Stored extends Omit<AppSettings, 'hasApiKey'> {
+interface Stored extends Omit<AppSettings, 'hasApiKey' | 'hasOpenAiKey'> {
   apiKeyEnc?: string
+  /** OpenAI key for AI photos (amendment A9), encrypted like the Claude key. */
+  openAiKeyEnc?: string
 }
 const DEFAULTS: Stored = { theme: 'dark', quality: 'high', uiMode: 'beginner', aiProvider: 'offline', autosaveSeconds: 20, firstRunDone: false }
 
@@ -91,8 +93,8 @@ async function stored(): Promise<Stored> {
   return { ...DEFAULTS, ...(await readJson<Partial<Stored>>('settings.json', {})) }
 }
 const pub = (s: Stored): AppSettings => {
-  const { apiKeyEnc, ...rest } = s
-  return { ...rest, hasApiKey: !!apiKeyEnc || !!process.env.ANTHROPIC_API_KEY }
+  const { apiKeyEnc, openAiKeyEnc, ...rest } = s
+  return { ...rest, hasApiKey: !!apiKeyEnc || !!process.env.ANTHROPIC_API_KEY, hasOpenAiKey: !!openAiKeyEnc || !!process.env.OPENAI_API_KEY }
 }
 /** Read before the app is ready: command-line switches must be set before start-up. */
 export function graphicsBackendSync(): AppSettings['graphicsBackend'] {
@@ -108,7 +110,7 @@ export async function settingsGet() {
 }
 export async function settingsSet(patch: Partial<AppSettings>) {
   const s = await stored()
-  const { hasApiKey: _ignored, ...clean } = patch
+  const { hasApiKey: _ignored, hasOpenAiKey: _ignored2, ...clean } = patch
   const next = { ...s, ...clean }
   await writeJson('settings.json', next)
   return pub(next)
@@ -122,14 +124,29 @@ export async function setApiKey(key: string | null) {
   return pub(s)
 }
 export async function getApiKey(): Promise<string | null> {
-  const s = await stored()
-  if (!s.apiKeyEnc) return null
+  return decrypt((await stored()).apiKeyEnc)
+}
+
+const encrypt = (key: string) => (safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(key).toString('base64') : `plain:${Buffer.from(key).toString('base64')}`)
+function decrypt(enc?: string): string | null {
+  if (!enc) return null
   try {
-    if (s.apiKeyEnc.startsWith('plain:')) return Buffer.from(s.apiKeyEnc.slice(6), 'base64').toString('utf8')
-    return safeStorage.decryptString(Buffer.from(s.apiKeyEnc, 'base64'))
+    if (enc.startsWith('plain:')) return Buffer.from(enc.slice(6), 'base64').toString('utf8')
+    return safeStorage.decryptString(Buffer.from(enc, 'base64'))
   } catch {
     return null
   }
+}
+
+export async function setOpenAiKey(key: string | null) {
+  const s = await stored()
+  if (!key) delete s.openAiKeyEnc
+  else s.openAiKeyEnc = encrypt(key)
+  await writeJson('settings.json', s)
+  return pub(s)
+}
+export async function getOpenAiKey(): Promise<string | null> {
+  return decrypt((await stored()).openAiKeyEnc)
 }
 
 export async function appendLog(level: string, message: string) {
