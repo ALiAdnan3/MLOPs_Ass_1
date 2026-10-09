@@ -18,6 +18,8 @@ export default defineConfig({
     worker: { format: 'es' },
     build: {
       outDir: 'out/renderer',
+      // electron-vite leaves the renderer unminified by default: 4.2 MB to parse at every start
+      minify: 'esbuild',
       chunkSizeWarningLimit: 4000,
       rollupOptions: { input: resolve(__dirname, 'src/renderer/index.html') }
     }

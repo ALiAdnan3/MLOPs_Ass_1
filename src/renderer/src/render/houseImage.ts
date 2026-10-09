@@ -6,7 +6,9 @@ import { bbox } from '../core/geometry/polygon'
 
 /**
  * Offscreen 3D renders of any house (design cards, comparison, presentation, before/after).
- * Uses the shared engine and restores whatever it was showing.
+ * Uses the shared engine and restores whatever it was showing. Renders run one at a time; the queue
+ * moves on as soon as a picture is drawn (encoding finishes in the background), and a picture whose
+ * requester has gone (`signal` aborted) is skipped.
  */
 let queue: Promise<unknown> = Promise.resolve()
 
@@ -23,10 +25,18 @@ export interface HouseImageOptions {
   viewMode?: 'realistic' | 'dollhouse' | 'architectural'
   /** Door leaves drawn open (default) or shut, as in an interior photograph. */
   doorsOpen?: boolean
+  /**
+   * Wait for full-size textures (default: pictures 1200 px wide or more). A whole-house view far
+   * from the walls looks the same with the first, smaller textures and need not wait.
+   */
+  fullTextures?: boolean
+  /** Abort when the picture is no longer wanted: if it has not started, it is skipped (resolves to ''). */
+  signal?: AbortSignal
 }
 
 export function renderHouseImage(p: Project, opts: HouseImageOptions = { width: 480, height: 300 }): Promise<string> {
-  const job = queue.then(async () => {
+  const job = queue.then(async (): Promise<Promise<Blob> | null> => {
+    if (opts.signal?.aborted) return null
     const e = getEngine()
     const prev = e.project
     const prevOpts = e.options
@@ -49,27 +59,30 @@ export function renderHouseImage(p: Project, opts: HouseImageOptions = { width: 
         pos = new THREE.Vector3(c.x, size * 1.6, c.z + 0.01)
         target = new THREE.Vector3(c.x, 0, c.z)
       } else pos = new THREE.Vector3(c.x + size * 0.75, size * 0.55 + c.y, c.z + size * 0.95)
-      // let textures stream in (procedural maps are generated in workers)
-      await new Promise((r) => setTimeout(r, 60))
-      await e.mats.waitIdle(opts.width >= 1200 ? 6000 : 2500)
+      // textures are generated in workers and shaders compile in the background; wait for both
+      const full = opts.fullTextures ?? opts.width >= 1200
+      await Promise.all([e.mats.waitIdle(full ? 15000 : 2500, full), e.ready()])
       let fov = 45
       if (opts.pose) {
         pos = new THREE.Vector3(...opts.pose.position)
         target = new THREE.Vector3(...opts.pose.target)
         fov = opts.pose.fov ?? 60
       }
-      const shot = e.snapshot({ width: opts.width, height: opts.height, type: opts.type ?? 'image/jpeg', quality: 0.9, pose: { position: pos, target, fov } })
-      // put back what was on show before anything else can draw
-      if (prev) e.update(prev, prevOpts)
-      // the capture resized (and so cleared) the shared canvas: redraw the view now, or it stays
-      // blank while the next queued render waits for its textures
-      if (prev && e.container) e.renderFrame()
-      return URL.createObjectURL(await shot)
+      const shot = e.snapshot({ width: opts.width, height: opts.height, type: opts.type ?? 'image/jpeg', quality: 0.92, pose: { position: pos, target, fov } })
+      // put back what was on show before anything else can draw. With nothing on screen there is
+      // nothing to put back: whichever view mounts next sets its own house.
+      if (prev && e.container) {
+        e.update(prev, prevOpts)
+        // the capture resized (and so cleared) the shared canvas: redraw the view now, or it stays
+        // blank while the next queued render waits for its textures
+        e.renderFrame()
+      }
+      return shot
     } finally {
       e.holds--
       if (e.container && !e.holds) e.renderFrame()
     }
   })
   queue = job.catch(() => undefined)
-  return job
+  return job.then(async (shot) => (shot ? URL.createObjectURL(await shot) : ''))
 }

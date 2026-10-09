@@ -153,9 +153,11 @@ function DesignCard(props: { d: DesignOption; onUse: () => void; compared: boole
   useEffect(() => {
     let alive = true
     const p = { ...newProject(), ...d.house } as Project
-    renderHouseImage(p, { width: 480, height: 400 }).then((u) => alive && setImg(u))
+    const ac = new AbortController()
+    renderHouseImage(p, { width: 480, height: 400, signal: ac.signal }).then((u) => alive && u && setImg(u))
     return () => {
       alive = false
+      ac.abort()
     }
   }, [d])
   const s = d.stats

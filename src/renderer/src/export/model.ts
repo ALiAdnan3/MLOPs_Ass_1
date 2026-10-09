@@ -15,7 +15,7 @@ async function prepare(p: Project) {
   const prev = { project: e.project, options: e.options }
   const ground = sortedFloors(p.floors).find((f) => f.level === 0) ?? p.floors[0]
   e.update(p, { floorId: ground?.id ?? '', showAll: true, viewMode: 'realistic', explodeGap: 0, doorsOpen: true, showFurniture: p.settings.layers.furniture, showStructure: true })
-  await e.mats.waitIdle(15000)
+  await e.mats.waitIdle(20000, true)
   const restore = () => {
     if (prev.project) e.update(prev.project, prev.options)
   }

@@ -514,3 +514,24 @@
 .sc-brochure .btn.ghost {
   color: var(--sc-ink-2);
 }
+
+/* the gallery picture stands in while the full-size render is made */
+.sc-stage img.sc-preview {
+  width: min(100%, 1680px);
+  height: auto;
+  filter: saturate(0.95);
+}
+.sc-sharpen {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(8, 16, 29, 0.8);
+  font-size: 12px;
+  color: #cfdbec;
+}

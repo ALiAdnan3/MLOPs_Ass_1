@@ -168,3 +168,41 @@ Extends §10 (realistic view), §49 (presentation) and §54 (concept images). §
   - `tests/showcase.test.ts`: 8 unit tests.
 - **Not verified here:** no live OpenAI call was made, because that needs the user's key and is charged to their account. The real result depends on OpenAI's model.
 - Rendering fix found on the way: the sky's below-horizon colour was olive, which tinted every ceiling green through the environment lighting. It is now a neutral earth tone.
+
+## A10. Performance and rendering quality
+
+Raises §50 (performance). Every change was measured, with `e2e/bench.py` against the production web build (headless Chromium with GPU, 1-kanal house):
+
+| Wait | Before | After |
+|---|---|---|
+| Main thread blocked while the app starts | ~12 s | ~3 s |
+| Dashboard pictures complete (cut-away, finishes preview, video tile) | 13.6 s | 6.6 s |
+| Five design cards after generating | 10.1 s | 3.5 s |
+| Home Showcase, all 25 pictures | 4.6 s | 2.3 s |
+| Relighting the rooms in the showcase | 7.4 s | 1.1 s |
+| Opening an area: first picture | 0.4 s | 0.08 s (full detail follows in ~3 s) |
+
+What changed, and why:
+- **Shaders compile in the background** (`KHR_parallel_shader_compile`), and drawing waits for them. A CPU profile showed 9.5 s of the 12 s start-up stall was shader compilation on the main thread. Three causes were removed:
+  - Each textured material compiled twice. It now has neutral 1×1 texture slots from the start, and real textures swap in.
+  - Each change in the number of night lights recompiled every shader. A fixed pool of lights is now reused.
+  - Screen and post-processing shaders are different programs, so drawing on both paths compiled two sets. Every frame now goes through post-processing when quality has it, with 4× multisampling, which also smooths edges at night.
+  - The readiness check asks the GPU about one unfinished program at a time, instead of all of them every 10 ms.
+- **Textures arrive progressively.** Every material gets a 256 px texture within about a second, so pictures are never taken half-textured. Full-size textures follow on at most a third of the workers, so design generation keeps its cores. Close-up pictures, exports and Photoreal wait for full size.
+- **Texture workers:**
+  - Up to 6 workers instead of 3, fed from one queue: view textures first, then swatches, then full-size upgrades.
+  - Identical requests share one job.
+- **The picture queue:**
+  - A picture nobody wants any more (an effect re-run, a filter change, leaving the page) is skipped.
+  - No fixed 60 ms sleep per picture.
+  - The previous view is restored only when one is on screen.
+  - The queue moves on while the image encodes.
+- **Built floors and sites are kept** (the last 40) and reused when the same state returns, such as the house on screen after a design card's picture, or doors shut and open again.
+- **The desktop renderer bundle is minified:** 4.2 MB down to 2.2 MB to parse at every start.
+- **Pictures are rendered at 1.5–2× and scaled down**, so walls, railings and furniture have clean edges.
+
+Bugs found while measuring:
+- After a quality change, the house was drawn twice. The old builds stayed in the scene.
+- At night, the studio environment's bright panels showed as white blobs in glossy floors and glass. Nights now use a soft, even surround.
+- Room downlights were dropped in large houses, so night rooms were lit only by the environment. The light budget alone now caps them.
+- From inside, garden lights shone through walls and window glass glowed like a floodlight. Both now apply only outside.

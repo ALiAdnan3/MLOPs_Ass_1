@@ -12,6 +12,25 @@ import { assetUrl } from '../../state/assets'
 
 export type RenderLook = 'realistic' | 'clay'
 
+/**
+ * Neutral 1x1 stand-ins for colour, normal and roughness maps. A textured material carries them from
+ * the start, so its shader already has the texture slots: when the real maps arrive from the
+ * workers they are swapped in without recompiling the program (a recompile per material used to
+ * freeze the first frames of every new house for seconds).
+ */
+function onePixel(rgba: [number, number, number, number], srgb: boolean) {
+  const t = new THREE.DataTexture(new Uint8Array(rgba), 1, 1, THREE.RGBAFormat)
+  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
+  t.wrapS = t.wrapT = THREE.RepeatWrapping
+  t.needsUpdate = true
+  return t
+}
+const PLACEHOLDER = {
+  color: onePixel([255, 255, 255, 255], true),
+  normal: onePixel([128, 128, 255, 255], false),
+  rough: onePixel([255, 255, 255, 255], false)
+}
+
 interface Entry {
   def: MaterialDef
   mats: Map<string, THREE.Material>
@@ -28,25 +47,45 @@ export class MaterialManager {
   anisotropy = 4
   onUpdate: () => void = () => {}
   clippingPlanes: THREE.Plane[] = []
-  /** Texture sets still being generated / decoded. */
+  /** Texture sets still being generated / decoded (first, possibly small, versions). */
   pending = 0
-  private idleWaiters: (() => void)[] = []
+  /** Full-size versions still being generated after a small first one. */
+  pendingFull = 0
+  private idleWaiters: { full: boolean; done: () => void }[] = []
 
-  /** Resolves once every requested texture set has arrived (or after `timeout` ms). */
-  waitIdle(timeout = 5000): Promise<void> {
-    if (!this.pending) return Promise.resolve()
-    return new Promise((res) => {
+  /**
+   * Resolves once every requested material has a texture (or after `timeout` ms). With `full`, it
+   * waits for the full-size versions too: large pictures want them, thumbnails do not.
+   */
+  waitIdle(timeout = 5000, full = false): Promise<void> {
+    if (!this.pending && (!full || !this.pendingFull)) return Promise.resolve()
+    // full-size textures are wanted now: let the upgrades use every worker until they are in
+    if (full) texturePool.rush(true)
+    return new Promise<void>((res) => {
       const t = setTimeout(res, timeout)
-      this.idleWaiters.push(() => {
-        clearTimeout(t)
-        res()
+      this.idleWaiters.push({
+        full,
+        done: () => {
+          clearTimeout(t)
+          res()
+        }
       })
+    }).finally(() => {
+      if (full) texturePool.rush(false)
+    })
+  }
+
+  private wake() {
+    this.idleWaiters = this.idleWaiters.filter((w) => {
+      if (this.pending || (w.full && this.pendingFull)) return true
+      w.done()
+      return false
     })
   }
 
   private settle() {
     this.pending = Math.max(0, this.pending - 1)
-    if (!this.pending) for (const w of this.idleWaiters.splice(0)) w()
+    this.wake()
   }
 
   setProjectMaterials(list: MaterialDef[]) {
@@ -95,7 +134,14 @@ export class MaterialManager {
       m = this.create(def, variant)
       e.mats.set(variant, m)
       if (e.maps) this.applyMaps(m, e.maps, def)
-      else this.loadMaps(e)
+      else if (def.assetId || def.procedural) {
+        // the shader is built once, with texture slots; the real maps replace these later
+        const s = m as THREE.MeshStandardMaterial
+        s.map = PLACEHOLDER.color
+        s.normalMap = PLACEHOLDER.normal
+        s.roughnessMap = PLACEHOLDER.rough
+        this.loadMaps(e)
+      }
     }
     return m
   }
@@ -161,13 +207,16 @@ export class MaterialManager {
 
   private applyMaps(m: THREE.Material, maps: NonNullable<Entry['maps']>, def: MaterialDef) {
     const s = m as THREE.MeshStandardMaterial
+    // swapping textures into existing slots keeps the compiled shader; only a material that had no
+    // slots yet needs a new one
+    const hadSlots = !!s.map && !!s.normalMap && !!s.roughnessMap
     s.map = maps.color
-    s.normalMap = maps.normal ?? null
+    s.normalMap = maps.normal ?? PLACEHOLDER.normal
     s.normalScale = new THREE.Vector2(def.normalStrength, def.normalStrength)
-    s.roughnessMap = maps.rough ?? null
+    s.roughnessMap = maps.rough ?? PLACEHOLDER.rough
     s.color = new THREE.Color('#ffffff')
     if (def.color && def.color.toLowerCase() !== '#ffffff') s.color = new THREE.Color(def.color)
-    s.needsUpdate = true
+    if (!hadSlots) s.needsUpdate = true
   }
 
   private configure(t: THREE.Texture, def: MaterialDef, srgb: boolean) {
@@ -232,16 +281,40 @@ export class MaterialManager {
       return
     }
     if (!def.procedural) return finish()
+    const proc = def.procedural
     const size = def.category === 'paint' ? Math.min(256, this.texSize) : this.texSize
-    texturePool
-      .generate({ kind: def.procedural.kind, colors: def.procedural.colors, params: def.procedural.params, seed: def.procedural.seed, size, scale: def.scale }, def.roughness, def.normalStrength, def.brightness, def.contrast)
-      .then((maps: TexMaps) =>
-        done({
-          color: this.dataTex(maps.color, maps.size, def, true),
-          normal: this.dataTex(maps.normal, maps.size, def, false),
-          rough: this.dataTex(maps.rough, maps.size, def, false)
-        })
-      )
+    // a quick small version first, so the whole house is textured within a second; the full size
+    // follows in the background and is swapped into the same texture slots (no recompiling)
+    const first = Math.min(size, 256)
+    const gen = (n: number, priority: 'view' | 'upgrade') =>
+      texturePool.generate({ kind: proc.kind, colors: proc.colors, params: proc.params, seed: proc.seed, size: n, scale: def.scale }, def.roughness, def.normalStrength, def.brightness, def.contrast, priority)
+    const toMaps = (maps: TexMaps) => ({
+      color: this.dataTex(maps.color, maps.size, def, true),
+      normal: this.dataTex(maps.normal, maps.size, def, false),
+      rough: this.dataTex(maps.rough, maps.size, def, false)
+    })
+    gen(first, 'view')
+      .then((maps: TexMaps) => {
+        done(toMaps(maps))
+        if (first >= size) return
+        this.pendingFull++
+        gen(size, 'upgrade')
+          .then((full) => {
+            if (this.entries.get(def.id) !== e || !e.maps) return
+            const small = e.maps
+            e.maps = toMaps(full)
+            for (const m of e.mats.values()) this.applyMaps(m, e.maps, def)
+            small.color.dispose()
+            small.normal?.dispose()
+            small.rough?.dispose()
+            this.onUpdate()
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            this.pendingFull = Math.max(0, this.pendingFull - 1)
+            this.wake()
+          })
+      })
       .catch(() => {
         e.loading = false
         finish()

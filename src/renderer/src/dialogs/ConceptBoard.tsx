@@ -29,7 +29,7 @@ export function ConceptBoard({ onClose }: { onClose: () => void }) {
     try {
       const e = hasEngine() && getEngine().container ? getEngine() : null
       if (e) {
-        await e.mats.waitIdle(6000)
+        await e.mats.waitIdle(15000, true)
         await add(await e.snapshot({ width: 1920, height: Math.round((1920 * e.canvas.clientHeight) / Math.max(1, e.canvas.clientWidth)), type: 'image/jpeg', quality: 0.92 }), `3D view ${images.length + 1}`)
       } else {
         const url = await renderHouseImage(getProject(), { width: 1920, height: 1080, view: 'street' })

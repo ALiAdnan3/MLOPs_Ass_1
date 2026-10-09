@@ -960,11 +960,14 @@ function CutawayTile({ project }: { project: Project | null }) {
     const el = floorElevations(project.floors, project.settings.plinthHeight).get(g.id) ?? 0
     const c = { x: b.x + b.w / 2, z: b.y + b.h / 2 }
     const size = Math.max(b.w, b.h) / zoom
+    const ac = new AbortController()
+    // after the hero's first frame; superseded pictures (another zoom, an edit) are skipped
     const t = setTimeout(() => {
-      renderHouseImage(project, { width: 720, height: 420, viewMode: 'dollhouse', floorId: g.id, pose: { position: [c.x + size * 0.55, el + size * 0.95, c.z + size * 0.85], target: [c.x, el, c.z], fov: 42 } }).then((u) => alive && setImg(u))
-    }, 600)
+      renderHouseImage(project, { width: 720, height: 420, viewMode: 'dollhouse', floorId: g.id, pose: { position: [c.x + size * 0.55, el + size * 0.95, c.z + size * 0.85], target: [c.x, el, c.z], fov: 42 }, signal: ac.signal }).then((u) => alive && u && setImg(u))
+    }, 150)
     return () => {
       alive = false
+      ac.abort()
       clearTimeout(t)
     }
   }, [project, zoom])
@@ -1034,9 +1037,11 @@ function DesignCard({ d, on, onSelect }: { d: DesignOption; on: boolean; onSelec
     const p = { ...newProject(), ...d.house } as Project
     // golden hour reads best at thumbnail size
     p.settings.lighting = { ...p.settings.lighting, preset: 'sunset', time: presetTime('sunset', p.settings.lighting.latitude, p.settings.lighting.dayOfYear) }
-    renderHouseImage(p, { width: 360, height: 220, view: 'street' }).then((u) => alive && setImg(u))
+    const ac = new AbortController()
+    renderHouseImage(p, { width: 360, height: 220, view: 'street', signal: ac.signal }).then((u) => alive && u && setImg(u))
     return () => {
       alive = false
+      ac.abort()
     }
   }, [d])
   const s = d.stats
@@ -1069,9 +1074,11 @@ function VideoCard({ shown }: { shown: Project | null }) {
   useEffect(() => {
     if (!shown) return
     let alive = true
-    const t = setTimeout(() => void renderHouseImage(shown, { width: 420, height: 260, view: 'aerial' }).then((u) => alive && setImg(u)), 1400)
+    const ac = new AbortController()
+    const t = setTimeout(() => void renderHouseImage(shown, { width: 420, height: 260, view: 'aerial', signal: ac.signal }).then((u) => alive && u && setImg(u)), 400)
     return () => {
       alive = false
+      ac.abort()
       clearTimeout(t)
     }
   }, [shown?.id, shown?.activeDesignId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1179,14 +1186,16 @@ function FinishesPanel(props: { project: Project | null; view: Project | null; c
     let alive = true
     const b = bbox(cur.r.polygon)
     const y = (floorElevations(v.floors, v.settings.plinthHeight).get(cur.f.id) ?? 0) + 1.5
+    const ac = new AbortController()
     const t = setTimeout(() => {
       // finishes are judged in daylight, whatever time the hero shows
       const src = props.project ? getProject() : v
       const day = { ...src, settings: { ...src.settings, lighting: { ...src.settings.lighting, preset: 'afternoon' as const, time: 14.5 } } }
-      renderHouseImage(day, { width: 640, height: 300, floorId: cur.f.id, pose: { position: [b.x + Math.min(0.5, b.w * 0.12), y, b.y + Math.min(0.5, b.h * 0.12)], target: [b.x + b.w * 0.85, y - 0.35, b.y + b.h * 0.85], fov: 70 } }).then((u) => alive && setPreview(u))
-    }, 700)
+      renderHouseImage(day, { width: 640, height: 300, floorId: cur.f.id, pose: { position: [b.x + Math.min(0.5, b.w * 0.12), y, b.y + Math.min(0.5, b.h * 0.12)], target: [b.x + b.w * 0.85, y - 0.35, b.y + b.h * 0.85], fov: 70 }, signal: ac.signal }).then((u) => alive && u && setPreview(u))
+    }, 250)
     return () => {
       alive = false
+      ac.abort()
       clearTimeout(t)
     }
   }, [sig, props.view?.id]) // eslint-disable-line react-hooks/exhaustive-deps

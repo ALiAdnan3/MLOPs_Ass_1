@@ -55,6 +55,9 @@ const QUALITY: Record<Quality, { pixelRatio: number; shadows: number; tex: numbe
   ultra: { pixelRatio: 2, shadows: 4096, tex: 1024, lights: 24, post: true, ao: true, aa: true }
 }
 
+/** How strongly the night surround lights the scene (rooms are lit mainly by their own lights). */
+const NIGHT_ENV_INTENSITY = 0.45
+
 export class Engine {
   renderer: THREE.WebGLRenderer
   scene = new THREE.Scene()
@@ -117,6 +120,7 @@ export class Engine {
     canvas.style.outline = 'none'
     canvas.tabIndex = 0
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true, powerPreference: 'high-performance', logarithmicDepthBuffer: false })
+    if (import.meta.env.PROD) this.renderer.debug.checkShaderErrors = false
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.toneMappingExposure = 1.0
@@ -133,8 +137,7 @@ export class Engine {
     })
     canvas.addEventListener('webglcontextrestored', () => {
       this.contextLost = false
-      this.floors.clear()
-      this.site = null
+      this.resetBuilds()
       if (this.project) this.update(this.project, this.options)
     })
 
@@ -240,9 +243,9 @@ export class Engine {
     }
     this.mats.setTextureSize(Q.tex)
     this.setupPost()
-    this.floors.clear()
-    this.site = null
-    this.roofDeps = []
+    // the old builds must leave the scene too, or the house is drawn twice
+    this.resetBuilds()
+    this.pool = null
     if (this.project) this.update(this.project, this.options)
     this.resize()
     this.invalidate()
@@ -256,7 +259,11 @@ export class Engine {
     const Q = QUALITY[this.quality]
     if (!Q.post) return
     const size = this.renderer.getSize(new THREE.Vector2())
-    this.composer = new EffectComposer(this.renderer)
+    // multisampled, so edges stay smooth through the passes (the canvas's own antialiasing does not
+    // reach a render target)
+    const pr = this.renderer.getPixelRatio()
+    const target = new THREE.WebGLRenderTarget(Math.max(1, size.x * pr), Math.max(1, size.y * pr), { type: THREE.HalfFloatType, samples: Q.aa ? 4 : 0 })
+    this.composer = new EffectComposer(this.renderer, target)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
     if (Q.ao) {
       this.gtao = new GTAOPass(this.scene, this.camera, size.x, size.y)
@@ -276,12 +283,7 @@ export class Engine {
     if (look !== this.lastLook) {
       this.mats.look = look
       this.lastLook = look
-      this.floors.clear()
-      this.site = null
-      this.roofDeps = []
-      this.clearGroup(this.houseRoot)
-      this.clearGroup(this.siteRoot)
-      this.clearGroup(this.roofRoot)
+      this.resetBuilds()
     }
     this.mats.setProjectMaterials(p.materials)
     const floors = sortedFloors(p.floors)
@@ -295,13 +297,18 @@ export class Engine {
       const deps = [f, floors[i - 1], floors[i + 1], p.materials, p.exterior, opts.doorsOpen, opts.showFurniture, opts.showStructure, showCeilings, pitched, p.settings.plinthHeight, look]
       const cur = this.floors.get(f.id)
       if (cur && sameDeps(cur.deps, deps)) return
-      if (cur) this.disposeObject(cur.build.group)
-      let build: FloorBuild
-      try {
-        build = buildFloor(f, { house, mats: this.mats, custom: p.materials, doorsOpen: opts.doorsOpen, showFurniture: opts.showFurniture, showStructure: opts.showStructure, showCeilings, pitchedRoofCoversTop: pitched, plinth: p.settings.plinthHeight })
-      } catch (e) {
-        console.error('floor build failed', e)
-        build = { group: new THREE.Group(), lights: [], colliders: [] }
+      if (cur) this.putAside(f.id, cur)
+      // the same floor in the same state shown a moment ago (another design's picture was taken,
+      // doors were shut for an interior shot…): reuse its build instead of rebuilding
+      let build = this.takeAside(f.id, deps)?.build as FloorBuild | undefined
+      if (!build) {
+        try {
+          build = buildFloor(f, { house, mats: this.mats, custom: p.materials, doorsOpen: opts.doorsOpen, showFurniture: opts.showFurniture, showStructure: opts.showStructure, showCeilings, pitchedRoofCoversTop: pitched, plinth: p.settings.plinthHeight })
+        } catch (e) {
+          console.error('floor build failed', e)
+          build = { group: new THREE.Group(), lights: [], colliders: [] }
+        }
+        this.programsDirty = true
       }
       build.group.userData.floorId = f.id
       this.houseRoot.add(build.group)
@@ -309,15 +316,19 @@ export class Engine {
     })
     for (const [id, e] of this.floors) {
       if (!seen.has(id)) {
-        this.disposeObject(e.build.group)
+        this.putAside(id, e)
         this.floors.delete(id)
       }
     }
     const ground = p.floors.find((f) => f.level === 0)
     const siteDeps = [p.site, p.plot, p.exterior, ground, p.materials, look, p.settings.plinthHeight, floors.length]
     if (!this.site || !sameDeps(this.site.deps, siteDeps)) {
-      if (this.site) this.disposeObject(this.site.build.group)
-      const build = buildSite(house, this.mats, p.settings.plinthHeight)
+      if (this.site) this.putAside('site', this.site)
+      let build = this.takeAside('site', siteDeps)?.build as SiteBuild | undefined
+      if (!build) {
+        build = buildSite(house, this.mats, p.settings.plinthHeight)
+        this.programsDirty = true
+      }
       this.siteRoot.add(build.group)
       this.site = { deps: siteDeps, build }
     }
@@ -328,6 +339,7 @@ export class Engine {
       const r = pitched ? buildPitchedRoof(house, this.mats, p.settings.plinthHeight) : null
       if (r) this.roofRoot.add(r)
       this.roofDeps = roofDeps
+      this.programsDirty = true
     }
     this.applyLayout(el)
     this.applyLighting()
@@ -415,13 +427,14 @@ export class Engine {
     // emissive fixtures glow at night
     const lightsOn = L.interiorLights
     const glow = 0.15 + night * 1.1
-    // lit rooms read through the glass from dusk onwards
-    const windowGlow = lightsOn ? Math.min(3.2, Math.max(0, night - 0.05) * 3.4) : 0
+    // lit rooms read through the glass from dusk onwards (seen from outside; see applyWindowGlow)
+    this.windowGlow = lightsOn ? Math.min(3.2, Math.max(0, night - 0.05) * 3.4) : 0
+    // new builds bring their own glass: apply the glow to them too
+    this.glowApplied = -1
     this.root.traverse((o) => {
       const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[] | undefined
       for (const m of Array.isArray(mm) ? mm : mm ? [mm] : []) {
         if (m.userData?.emissiveLight) m.emissiveIntensity = lightsOn || night < 0.2 ? glow : 0.05
-        if (m.userData?.windowGlow) m.emissiveIntensity = windowGlow
       }
     })
     this.placeNightLights(night)
@@ -452,9 +465,16 @@ export class Engine {
   }
 
   private updateSkyEnvironment(night: number) {
-    if (night > 0.8 || this.options.viewMode === 'architectural') {
+    if (this.options.viewMode === 'architectural') {
       this.scene.environment = this.envTex
-      this.scene.environmentIntensity = this.options.viewMode === 'architectural' ? 0.8 : 0.1 + (1 - night) * 0.6
+      this.scene.environmentIntensity = 0.8
+      return
+    }
+    if (night > 0.8) {
+      // the studio environment's bright panels mirrored in glossy floors and glass as white blobs
+      // at night; a soft, even surround keeps rooms readable without them
+      this.scene.environment = this.nightEnvironment()
+      this.scene.environmentIntensity = NIGHT_ENV_INTENSITY
       return
     }
     const su = this.sky.material.uniforms
@@ -480,11 +500,76 @@ export class Engine {
     this.scene.environmentIntensity = 0.85 + (1 - night) * 0.35
   }
 
-  private placeNightLights(night: number) {
+  private nightEnv: THREE.Texture | null = null
+  /** Night ambience: warm grey, lighter overhead and darker underfoot, with no hot spots to reflect. */
+  private nightEnvironment() {
+    if (this.nightEnv) return this.nightEnv
+    const scene = new THREE.Scene()
+    const geo = new THREE.SphereGeometry(10, 32, 16)
+    const pos = geo.attributes.position
+    const low = new THREE.Color('#1d1a17')
+    const high = new THREE.Color('#b8ae9f')
+    const col = new Float32Array(pos.count * 3)
+    for (let i = 0; i < pos.count; i++) {
+      const c = low.clone().lerp(high, Math.pow((pos.getY(i) / 10 + 1) / 2, 1.4))
+      col.set([c.r, c.g, c.b], i * 3)
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3))
+    scene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })))
+    const pm = new THREE.PMREMGenerator(this.renderer)
+    this.nightEnv = pm.fromScene(scene, 0.04).texture
+    pm.dispose()
+    geo.dispose()
+    return this.nightEnv
+  }
+
+  /**
+   * The night lights: a fixed set, reused. Every material's shader depends on how many lights
+   * there are, so adding and removing lights as the camera moved or the time changed recompiled
+   * every shader each time. Unused lights stay in place with no intensity.
+   */
+  private pool: { points: THREE.PointLight[]; spots: THREE.SpotLight[] } | null = null
+  private lightPool() {
+    const n = QUALITY[this.quality].lights
+    const ns = Math.ceil(n / 2)
+    if (this.pool && this.pool.points.length === n && this.pool.spots.length === ns) return this.pool
     for (const c of [...this.nightLights.children]) {
       this.nightLights.remove(c)
       ;(c as THREE.Light).dispose?.()
     }
+    const points = Array.from({ length: n }, () => new THREE.PointLight('#ffffff', 0, 0.01, 2))
+    const spots = Array.from({ length: ns }, () => new THREE.SpotLight('#ffffff', 0, 0.01, 0.5, 0.75, 1.5))
+    for (const l of points) this.nightLights.add(l)
+    for (const l of spots) this.nightLights.add(l, l.target)
+    this.programsDirty = true
+    return (this.pool = { points, spots })
+  }
+
+  private windowGlow = 0
+  private glowApplied = -1
+  /**
+   * Window glass glows at night so lit rooms read from the street. From inside the house the same
+   * glass would shine like a floodlight, so it glows only while the camera is outside.
+   */
+  private applyWindowGlow() {
+    const level = this.lastInside ? 0 : this.windowGlow
+    if (level === this.glowApplied) return
+    this.glowApplied = level
+    this.root.traverse((o) => {
+      const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[] | undefined
+      for (const m of Array.isArray(mm) ? mm : mm ? [mm] : []) if (m.userData?.windowGlow) m.emissiveIntensity = level
+    })
+  }
+
+  private placeNightLights(night: number) {
+    const pool = this.lightPool()
+    for (const l of [...pool.points, ...pool.spots]) {
+      l.intensity = 0
+      l.distance = 0.01
+      l.position.set(0, -500, 0)
+    }
+    let pi = 0
+    let si = 0
     const p = this.project
     if (!p) return
     const L = p.settings.lighting
@@ -492,13 +577,13 @@ export class Engine {
     // point lights cast no shadows, so seen from outside they would shine through walls and
     // roofs; outside, lit rooms show through their glowing windows instead
     this.lastInside = this.cameraInside()
+    this.applyWindowGlow()
     // basements are lit whatever the time of day (§26)
     const interior: { pos: THREE.Vector3; warm: boolean; basement: boolean; intensity: number; kelvin?: number }[] = []
     for (const e of this.floors.values()) {
       if (!e.build.group.visible) continue
       for (const l of e.build.lights) {
         if (!l.on) continue
-        if (l.kind === 'downlight' && e.build.lights.length > 40) continue
         interior.push({ pos: l.p.clone().add(new THREE.Vector3(0, e.build.group.position.y, 0)), warm: l.warm, basement: l.basement, intensity: l.intensity, kelvin: l.kelvin })
       }
     }
@@ -511,26 +596,42 @@ export class Engine {
         if (night < 0.25 && !l.basement) continue
         if (!this.lastInside) continue
         const color = l.kelvin ? kelvinColor(l.kelvin) : l.warm ? '#ffd9a6' : '#fff4e6'
-        const pl = new THREE.PointLight(color, (l.basement ? 5 : 3 + night * 5) * l.intensity, 7, 1.6)
+        const pl = pool.points[pi++]
+        pl.color.set(color)
+        pl.intensity = (l.basement ? 5 : 3 + night * 5) * l.intensity
+        pl.distance = 7
+        pl.decay = 1.6
         pl.position.copy(l.pos)
-        this.nightLights.add(pl)
         used++
       }
     }
-    if (L.exteriorLights && night > 0.3 && this.site) {
+    // garden lights are outside: from inside the house they would only shine through the walls
+    if (L.exteriorLights && night > 0.3 && this.site && !this.lastInside) {
       const extColor = kelvinColor(p.exterior.lighting.temperature || 3000)
       let ext = 0
       for (const l of this.site.build.lights) {
         if (ext >= Math.ceil(budget / 2)) break
         if (l.kind === 'wash') {
-          const s = new THREE.SpotLight(extColor, 16 * night, 9, 0.5, 0.75, 1.5)
+          if (si >= pool.spots.length) continue
+          const s = pool.spots[si++]
+          s.color.set(extColor)
+          s.intensity = 16 * night
+          s.distance = 9
+          s.angle = 0.5
+          s.penumbra = 0.75
+          s.decay = 1.5
           s.position.copy(l.p)
           s.target.position.copy(l.p).add(new THREE.Vector3(0, 5, -0.8))
-          this.nightLights.add(s, s.target)
+          s.target.updateMatrixWorld()
         } else {
-          const pl = new THREE.PointLight(extColor, (l.kind === 'lamp' ? 6 : 2.5) * night, l.kind === 'lamp' ? 9 : 4, 1.8)
+          // garden lamps share the pool with the rooms' lights; the rooms come first
+          if (pi >= pool.points.length) continue
+          const pl = pool.points[pi++]
+          pl.color.set(extColor)
+          pl.intensity = (l.kind === 'lamp' ? 6 : 2.5) * night
+          pl.distance = l.kind === 'lamp' ? 9 : 4
+          pl.decay = 1.8
           pl.position.copy(l.p)
-          this.nightLights.add(pl)
         }
         ext++
       }
@@ -791,6 +892,11 @@ export class Engine {
       dirty = true
     }
     if (!dirty) return
+    // new shaders compile in the background first; the last frame stays up meanwhile
+    if (this.programsDirty || this.compiling || !this.compiledFor.has(this.renderPath())) {
+      void this.ready()
+      return
+    }
     this.needs = false
     // walking in or out of the house at night swaps interior lights on/off
     if (this.night > 0.25 && ++this.insideCheck % 15 === 0 && this.cameraInside() !== this.lastInside) this.placeNightLights(this.night)
@@ -799,7 +905,7 @@ export class Engine {
   }
 
   renderFrame() {
-    if (this.composer && this.active === this.camera && (this.night > 0.3 || this.gtao)) this.composer.render()
+    if (this.usesComposer()) this.composer!.render()
     else this.renderer.render(this.scene, this.active)
   }
 
@@ -808,7 +914,7 @@ export class Engine {
    * the camera all happen before this returns; only the encoding is asynchronous, so nothing that
    * moves the camera in the meantime (orbit spin, the user) is undone afterwards.
    */
-  snapshot(opts: { width?: number; height?: number; type?: 'image/png' | 'image/jpeg'; quality?: number; pose?: { position: THREE.Vector3; target: THREE.Vector3; fov?: number } } = {}): Promise<Blob> {
+  snapshot(opts: { width?: number; height?: number; type?: 'image/png' | 'image/jpeg'; quality?: number; pose?: { position: THREE.Vector3; target: THREE.Vector3; fov?: number }; supersample?: number } = {}): Promise<Blob> {
     const size = this.renderer.getSize(new THREE.Vector2())
     const w = opts.width ?? size.x
     const h = opts.height ?? size.y
@@ -822,15 +928,30 @@ export class Engine {
       this.camera.lookAt(opts.pose.target)
       if (opts.pose.fov) this.camera.fov = opts.pose.fov
     }
+    // drawn larger and scaled down: clean edges on walls, railings and furniture (the post-processing
+    // passes have no multisampling of their own)
+    const ss = opts.supersample ?? (w * h <= 1_100_000 ? 2 : w * h <= 2_600_000 ? 1.5 : 1)
+    const W = Math.round(w * ss)
+    const H = Math.round(h * ss)
     this.renderer.setPixelRatio(1)
-    this.renderer.setSize(w, h, false)
+    this.renderer.setSize(W, H, false)
     this.camera.aspect = w / h
     this.camera.updateProjectionMatrix()
-    this.composer?.setSize(w, h)
+    this.composer?.setSize(W, H)
     if (opts.pose) this.placeNightLights(this.night)
     this.renderFrame()
+    let source: HTMLCanvasElement = this.canvas
+    if (ss > 1) {
+      source = document.createElement('canvas')
+      source.width = w
+      source.height = h
+      const g = source.getContext('2d')!
+      g.imageSmoothingEnabled = true
+      g.imageSmoothingQuality = 'high'
+      g.drawImage(this.canvas, 0, 0, W, H, 0, 0, w, h)
+    }
     // toBlob copies the canvas immediately and encodes in the background
-    const blob = new Promise<Blob>((resolve, reject) => this.canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('snapshot failed'))), opts.type ?? 'image/png', opts.quality ?? 0.92))
+    const blob = new Promise<Blob>((resolve, reject) => source.toBlob((b) => (b ? resolve(b) : reject(new Error('snapshot failed'))), opts.type ?? 'image/png', opts.quality ?? 0.92))
     this.camera.position.copy(prevPos)
     this.controls.target.copy(prevTarget)
     this.camera.fov = prevFov
@@ -842,6 +963,107 @@ export class Engine {
     if (opts.pose) this.placeNightLights(this.night)
     this.invalidate()
     return blob
+  }
+
+  // ── build reuse ───────────────────────────────────────────────────────────
+  /** Builds recently taken off the scene, newest last; reused when the same state comes back. */
+  private aside: { id: string; deps: unknown[]; build: { group: THREE.Object3D } }[] = []
+  private putAside(id: string, e: { deps: unknown[]; build: { group: THREE.Object3D } }) {
+    e.build.group.parent?.remove(e.build.group)
+    this.aside.push({ id, deps: e.deps, build: e.build })
+    // a few houses' worth (the design cards, the showcase, the house being edited)
+    while (this.aside.length > 40) this.disposeObject(this.aside.shift()!.build.group)
+  }
+  private takeAside(id: string, deps: unknown[]) {
+    const i = this.aside.findIndex((x) => x.id === id && sameDeps(x.deps, deps))
+    return i < 0 ? null : this.aside.splice(i, 1)[0]
+  }
+  /** Throw away every build (new quality, new look, lost context). */
+  private resetBuilds() {
+    this.floors.clear()
+    this.site = null
+    this.roofDeps = []
+    this.clearGroup(this.houseRoot)
+    this.clearGroup(this.siteRoot)
+    this.clearGroup(this.roofRoot)
+    for (const x of this.aside.splice(0)) this.disposeObject(x.build.group)
+    this.programsDirty = true
+  }
+
+  // ── shader compilation ────────────────────────────────────────────────────
+  /** New meshes or materials were added since the last compile. */
+  private programsDirty = true
+  private compiling: Promise<void> | null = null
+  /** Render paths compiled for since the scene last changed (see renderPath). */
+  private compiledFor = new Set<string>()
+
+  /** Whether the next frame goes through the post-processing passes or straight to the screen. */
+  private usesComposer() {
+    // always through the passes when there are any: one set of shaders to compile, and day and
+    // night look alike in tone (bloom is all but off by day)
+    return !!this.composer && this.active === this.camera
+  }
+  /**
+   * Shaders differ by path: drawn to the screen they include tone mapping and sRGB output, drawn
+   * into the post-processing buffer they do not. Compiling for the wrong path left the real ones to
+   * compile on the main thread at first draw.
+   */
+  private renderPath() {
+    return this.usesComposer() ? 'post' : 'screen'
+  }
+  /**
+   * Compile the shaders for everything in the scene in the background (KHR_parallel_shader_compile)
+   * before drawing it. Compiling while drawing used to block the app for seconds on the first frames
+   * of each new house. Resolves when the scene can be drawn without compiling.
+   */
+  ready(): Promise<void> {
+    if (this.compiling) return this.compiling
+    const path = this.renderPath()
+    if (this.programsDirty) this.compiledFor.clear()
+    if (this.compiledFor.has(path)) return Promise.resolve()
+    this.programsDirty = false
+    this.compiledFor.add(path)
+    // the programs are created now, against the target this path draws into; the GPU finishes
+    // compiling them in the background and the promise resolves when all are ready
+    const prevTarget = this.renderer.getRenderTarget()
+    if (path === 'post') this.renderer.setRenderTarget(this.composer!.readBuffer)
+    const materials = this.renderer.compile(this.scene, this.active)
+    this.renderer.setRenderTarget(prevTarget)
+    const job: Promise<void> = this.programsReady(materials)
+      .then(
+        () => undefined,
+        () => undefined
+      )
+      .finally(() => {
+        if (this.compiling === job) this.compiling = null
+        this.invalidate()
+      })
+    this.compiling = job
+    return job
+  }
+
+  /**
+   * Resolves once the GPU has finished every program. Asks about one unfinished program at a time
+   * (each question is a round trip to the GPU process); three.js's own compileAsync asked about all
+   * of them every 10 ms, which cost seconds of main-thread time while a house loaded.
+   */
+  private programsReady(materials: Set<THREE.Material>): Promise<void> {
+    const props = this.renderer.properties as unknown as { get(m: THREE.Material): { currentProgram?: { isReady(): boolean } } }
+    const list = [...materials]
+    return new Promise((resolve) => {
+      const tick = () => {
+        while (list.length) {
+          const prog = props.get(list[0]).currentProgram
+          if (prog && !prog.isReady()) {
+            setTimeout(tick, 30)
+            return
+          }
+          list.shift()
+        }
+        resolve()
+      }
+      tick()
+    })
   }
 
   // ── housekeeping ──────────────────────────────────────────────────────────

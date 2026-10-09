@@ -27,7 +27,7 @@ export function materialThumb(m: MaterialDef, size = 128): Promise<string> {
   // show ~0.6 m of the surface (tiles/planks read at a glance); paint shows its flat colour
   const scale = m.scale
   const p = texturePool
-    .generate({ kind: m.procedural.kind, colors: m.procedural.colors, params: m.procedural.params, seed: m.procedural.seed, size, scale }, m.roughness, m.normalStrength, m.brightness, m.contrast)
+    .generate({ kind: m.procedural.kind, colors: m.procedural.colors, params: m.procedural.params, seed: m.procedural.seed, size, scale }, m.roughness, m.normalStrength, m.brightness, m.contrast, 'thumb')
     .then((maps) => {
       const c = document.createElement('canvas')
       c.width = c.height = size

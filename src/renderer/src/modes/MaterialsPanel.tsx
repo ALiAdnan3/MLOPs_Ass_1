@@ -88,7 +88,7 @@ export function MaterialsPanel() {
         if (roomId && !engine.cameraInside()) {
           engine.setCameraPreset('room', roomId, false)
           await frames(2)
-          await engine.mats.waitIdle(4000)
+          await engine.mats.waitIdle(8000, true)
         }
         before = await engine.snapshot(shotSize())
       }
@@ -103,7 +103,7 @@ export function MaterialsPanel() {
     useUI.getState().set({ busy: 'Rendering the new material…' })
     try {
       await frames(2)
-      await engine.mats.waitIdle(8000)
+      await engine.mats.waitIdle(15000, true)
       await frames(2)
       const after = await engine.snapshot(shotSize())
       setCompare({ before: URL.createObjectURL(before), after: URL.createObjectURL(after), label: `${def?.name} on ${info.label}` })

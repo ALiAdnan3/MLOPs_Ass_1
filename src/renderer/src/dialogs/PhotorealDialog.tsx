@@ -46,7 +46,7 @@ export function PhotorealDialog({ onClose }: { onClose: () => void }) {
     const started = performance.now()
     setProgress({ done: 0, total: q.samples, started })
     try {
-      await engine.mats.waitIdle(8000)
+      await engine.mats.waitIdle(20000, true)
       const blob = await renderPhotoreal(engine, { width, height, samples: q.samples, clay: style === 'clay', signal: ac.signal, onProgress: (done, total) => setProgress({ done, total, started }) })
       setResult({ blob, url: URL.createObjectURL(blob), secs: (performance.now() - started) / 1000 })
     } catch (e) {

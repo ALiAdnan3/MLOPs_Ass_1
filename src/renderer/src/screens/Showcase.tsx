@@ -116,7 +116,10 @@ const cached = (p: Project) => {
   return m
 }
 
-function useRender(p: Project | null, key: string, make: (() => Promise<string>) | null) {
+/** Pictures being made right now, so two requests for the same picture share one render. */
+const inflight = new Map<string, { promise: Promise<string>; ac: AbortController; users: number }>()
+
+function useRender(p: Project | null, key: string, make: ((signal: AbortSignal) => Promise<string>) | null) {
   const version = p ? looks(p) : ''
   const [url, setUrl] = useState<string | null>(() => (p ? (cached(p).get(key) ?? null) : null))
   useEffect(() => {
@@ -125,12 +128,28 @@ function useRender(p: Project | null, key: string, make: (() => Promise<string>)
     if (hit) return setUrl(hit)
     setUrl(null)
     let alive = true
-    make().then((u) => {
-      cached(p).set(key, u)
-      if (alive) setUrl(u)
-    })
+    const id = `${version}|${key}`
+    let job = inflight.get(id)
+    if (!job) {
+      const ac = new AbortController()
+      const promise = make(ac.signal).then((u) => {
+        if (u) cached(p).set(key, u)
+        return u
+      })
+      job = { promise, ac, users: 0 }
+      inflight.set(id, job)
+      void promise.finally(() => inflight.get(id) === job && inflight.delete(id))
+    }
+    job.users++
+    const mine = job
+    mine.promise.then((u) => alive && u && setUrl(u))
     return () => {
       alive = false
+      // nobody wants it any more (scrolled filter, new light, left the page): skip it if not started
+      if (--mine.users === 0) {
+        mine.ac.abort()
+        inflight.delete(id)
+      }
     }
   }, [version, key]) // eslint-disable-line react-hooks/exhaustive-deps
   return url
@@ -465,7 +484,7 @@ function ShowcaseBar({ onPdf, busy }: { onPdf: (() => void) | null | undefined; 
 
 function Hero({ project, light, onOpen }: { project: Project; light: Light; onOpen: () => void }) {
   const ai = useAiPhoto(project, 'ext-front')
-  const url = useRender(project, `hero|${light}`, () => renderHouseImage(lit(project, light, false), { width: 1680, height: 760, pose: heroPose(project, 1680 / 760) }))
+  const url = useRender(project, `hero|${light}`, (signal) => renderHouseImage(lit(project, light, false), { width: 1680, height: 760, pose: heroPose(project, 1680 / 760), fullTextures: false, signal }))
   const src = ai ?? url
   return (
     <button className="sc-hero" onClick={onOpen} aria-label="Open the front of the house">
@@ -477,7 +496,7 @@ function Hero({ project, light, onOpen }: { project: Project; light: Light; onOp
 
 function AreaCard({ project, view, light, showAi, onOpen }: { project: Project; view: AreaView; light: Light; showAi: boolean; onOpen: () => void }) {
   const ai = useAiPhoto(project, view.key)
-  const url = useRender(project, `card|${view.key}|${light}`, () => renderHouseImage(lit(project, light, view.kind === 'interior'), { width: 720, height: 450, floorId: view.floorId, pose: view.pose, doorsOpen: view.kind !== 'interior' }))
+  const url = useRender(project, `card|${view.key}|${light}`, (signal) => renderHouseImage(lit(project, light, view.kind === 'interior'), { width: 720, height: 450, floorId: view.floorId, pose: view.pose, doorsOpen: view.kind !== 'interior', signal }))
   const src = showAi && ai ? ai : url
   return (
     <button className="sc-card" onClick={onOpen} aria-label={`Open ${view.title}`}>
@@ -504,7 +523,8 @@ function Viewer({ project, views, index, lightOf, styling, onIndex, onClose }: {
   const [tab, setTab] = useState<Tab>(ai ? 'ai' : 'render')
   const [aiState, setAiState] = useState<{ working: boolean; started: number; error?: string }>({ working: false, started: 0 })
   const [elapsed, setElapsed] = useState(0)
-  const big = useRender(project, `big|${v.key}|${light}`, () => renderHouseImage(lit(project, light, v.kind === 'interior'), { width: 1680, height: 1050, floorId: v.floorId, pose: v.pose, doorsOpen: v.kind !== 'interior' }))
+  const preview = cached(project).get(`card|${v.key}|${light}`)
+  const big = useRender(project, `big|${v.key}|${light}`, (signal) => renderHouseImage(lit(project, light, v.kind === 'interior'), { width: 1680, height: 1050, floorId: v.floorId, pose: v.pose, doorsOpen: v.kind !== 'interior', fullTextures: v.kind !== 'exterior', signal }))
   const live = useRef<HTMLDivElement>(null)
 
   useEffect(() => setTab(ai ? 'ai' : 'render'), [v.key]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -614,6 +634,14 @@ function Viewer({ project, views, index, lightOf, styling, onIndex, onClose }: {
           <img src={ai} alt={`${v.title}, AI photo`} />
         ) : big ? (
           <img src={big} alt={v.title} />
+        ) : preview ? (
+          // the gallery picture at once, while the full-size one renders
+          <>
+            <img src={preview} alt={v.title} className="sc-preview" />
+            <span className="sc-sharpen">
+              <span className="spinner" /> Rendering in full detail…
+            </span>
+          </>
         ) : (
           <span className="spinner" />
         )}

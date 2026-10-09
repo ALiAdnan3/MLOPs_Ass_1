@@ -246,7 +246,7 @@ function ImagesExport({ onDone }: { onDone: () => void }) {
         const fromUrl = async (u: string) => (await fetch(u)).arrayBuffer()
         if (shots.includes('current') && mounted) {
           const e = getEngine()
-          await e.mats.waitIdle(6000)
+          await e.mats.waitIdle(15000, true)
           const b = await e.snapshot({ width: w, height: h, type, quality: 0.92 })
           out.push({ name: `${slug}-view.${fmt}`, data: await b.arrayBuffer() })
         }
