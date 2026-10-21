@@ -206,3 +206,33 @@ Bugs found while measuring:
 - At night, the studio environment's bright panels showed as white blobs in glossy floors and glass. Nights now use a soft, even surround.
 - Room downlights were dropped in large houses, so night rooms were lit only by the environment. The light budget alone now caps them.
 - From inside, garden lights shone through walls and window glass glowed like a floodlight. Both now apply only outside.
+
+## A11. No lag or freezing while you work
+
+Follows A10 (waiting times) with smoothness. `e2e/jank.py` records every main-thread task over 50 ms and every frame gap during 13 everyday interactions: start-up, orbiting the 3D views, typing, generating, opening the plan editor, zooming and dragging in the plan, switching modes, the showcase and returning to the dashboard. It was run alternately against the previous release and this one on the same machine at the same time:
+
+| | Previous release | Now |
+|---|---|---|
+| Total main-thread blocking across the 13 interactions | 23.7–29.2 s | 3.3–4.7 s |
+| Start-up and idle | 9.4 s, one 4.2 s freeze | 1.3–1.5 s |
+| Generating designs | 3.7–5.4 s | 0.4–0.9 s |
+| Dragging in the plan | 3.8–5.6 s (about 60 stutters) | 0.15–0.6 s |
+| Returning to the dashboard | 2.8 s | 0.2–0.4 s |
+| Orbiting the 3D view: worst frame | 2.4–3.6 s | 0.2–1.0 s |
+
+What changed:
+- **Swatch thumbnails are made entirely in the texture workers**, generated, shaded and JPEG-encoded there. They had taken 3.7 s of main-thread time at start-up.
+- **Pictures are captured without blocking.** `createImageBitmap` takes the frame and an encoder worker compresses it; the synchronous GPU readback in `toBlob` had cost about 0.1 s a picture. Pictures are drawn into a region of the canvas as it is and cropped, with no resizing. Resizing had reallocated GPU buffers twice per picture.
+- **Smooth 3D at 60 fps.** The multisampled post-processing buffer stalled ANGLE's Direct3D backend for about 0.6 s every second. It is replaced by FXAA.
+- **No shader compiles in the foreground:**
+  - Compilation runs in batches, a part of the scene at a time with frames in between.
+  - The environment bake's shaders (blur, GGX, sky) and the post-processing passes are compiled in the background before first use.
+  - The studio environment is made only when the clay view needs it.
+  - The night-light pool is 8 lights on High and 12 on Ultra; shader size grows with it, and the start-up GPU stall fell from 3.6 s to about 1.5 s.
+- **Textures upload ahead of use, about one large texture per frame**, instead of all at once when new walls come into view.
+- **Plan editing:**
+  - The 3D view rebuilds once a drag pauses (and at least every 0.8 s), not at pointer rate, and not at all while hidden.
+  - Validation runs once editing pauses.
+  - The material lists in the property panel are built once.
+- **Repeated work is cached:** baked sky lighting (the last 4 setups), and plant shapes built once and shared.
+- **Cylinders** (railings, furniture legs) are written straight into the mesh buffers, with identical output; a unit test checks it.

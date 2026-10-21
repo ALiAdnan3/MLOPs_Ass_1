@@ -463,6 +463,29 @@ function shrubCluster() {
   return mergeGeometries([foliageBlob(0.5, 0, 0.45, 0, 1, tint), foliageBlob(0.36, 0.38, 0.35, 0.12, 2, tint.clone().multiplyScalar(1.08)), foliageBlob(0.34, -0.3, 0.33, -0.22, 3, tint.clone().multiplyScalar(0.92))])!
 }
 
+/**
+ * The plant shapes never change, so each is built once and shared by every site build (they took
+ * ~100 ms per build, i.e. per design card picture). Marked shared so disposing a build keeps them.
+ */
+function once<T extends THREE.BufferGeometry>(make: () => T): () => T {
+  let g: T | null = null
+  return () => {
+    if (!g) {
+      g = make()
+      g.userData.shared = true
+    }
+    return g
+  }
+}
+const SHAPES = {
+  treeTrunk: once(treeTrunk),
+  treeCrown: once(treeCrown),
+  palmTrunk: once(palmTrunk),
+  palmFronds: once(palmFronds),
+  shrubCluster: once(shrubCluster),
+  flowerBed: once(() => new THREE.IcosahedronGeometry(0.55, 1).translate(0, 0.3, 0))
+}
+
 /** Trees, palms and shrubs as instanced meshes (§50: object instancing). */
 function instancedVegetation(trees: SiteObject[], palms: SiteObject[], shrubs: SiteObject[], mats: MaterialManager): THREE.Object3D[] {
   const out: THREE.Object3D[] = []
@@ -488,15 +511,14 @@ function instancedVegetation(trees: SiteObject[], palms: SiteObject[], shrubs: S
     out.push(im)
   }
   const at = (o: SiteObject, spin = 0, sy = 1) => m.compose(p.set(o.position.x, 0, o.position.y), q.setFromAxisAngle(up, o.rotation + spin), s.set(o.scale, o.scale * sy, o.scale))
-  make(treeTrunk(), bark, trees, (o) => at(o))
-  make(treeCrown(), leaves, trees, (o) => at(o, 0, 0.95))
-  make(palmTrunk(), palmBark, palms, (o) => at(o))
-  make(palmFronds(), palmLeaf, palms, (o) => at(o))
-  const bush = shrubCluster()
+  make(SHAPES.treeTrunk(), bark, trees, (o) => at(o))
+  make(SHAPES.treeCrown(), leaves, trees, (o) => at(o, 0, 0.95))
+  make(SHAPES.palmTrunk(), palmBark, palms, (o) => at(o))
+  make(SHAPES.palmFronds(), palmLeaf, palms, (o) => at(o))
+  const bush = SHAPES.shrubCluster()
   const flowerMat = mats.flat('#c9567a', 'site', { roughness: 0.9 })
   make(bush, leaves, shrubs.filter((x) => x.kind !== 'flowers'), (o) => at(o))
-  const flowerBed = new THREE.IcosahedronGeometry(0.55, 1)
-  flowerBed.translate(0, 0.3, 0)
+  const flowerBed = SHAPES.flowerBed()
   make(flowerBed, flowerMat, shrubs.filter((x) => x.kind === 'flowers'), (o) => m.compose(p.set(o.position.x, -0.15, o.position.y), q.identity(), s.set(o.scale, 0.6, o.scale)))
   return out
 }

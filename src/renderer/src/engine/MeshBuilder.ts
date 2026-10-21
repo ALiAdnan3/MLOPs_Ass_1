@@ -160,30 +160,65 @@ export class MeshBuilder {
     for (const q of quads) this.quad(v[q[0]], v[q[1]], v[q[2]], v[q[3]])
   }
 
-  /** Cylinder (or cone) along Y. */
+  /**
+   * Cylinder (or cone) along Y. Written straight into the buffers with a shared sine/cosine table:
+   * railings and furniture legs use hundreds of these, and building them face by face with fresh
+   * arrays was the largest part of building a floor. Same vertices, normals, UVs and triangles.
+   */
   cylinder(cx: number, y0: number, cz: number, r0: number, r1: number, h: number, seg = 12, caps = true) {
     const top = y0 + h
+    const t = trig(seg)
+    const p = this.cur
+    const pos = p.pos
+    const nor = p.nor
+    const uv = p.uv
+    const idx = p.idx
+    const k = 2 * Math.PI * r0
+    let tris = 0
     for (let i = 0; i < seg; i++) {
-      const a0 = (i / seg) * Math.PI * 2
-      const a1 = ((i + 1) / seg) * Math.PI * 2
-      const p0: V3 = [cx + Math.cos(a0) * r0, y0, cz + Math.sin(a0) * r0]
-      const p1: V3 = [cx + Math.cos(a1) * r0, y0, cz + Math.sin(a1) * r0]
-      const q1: V3 = [cx + Math.cos(a1) * r1, top, cz + Math.sin(a1) * r1]
-      const q0: V3 = [cx + Math.cos(a0) * r1, top, cz + Math.sin(a0) * r1]
-      const u0 = (a0 / (Math.PI * 2)) * 2 * Math.PI * r0
-      const u1 = (a1 / (Math.PI * 2)) * 2 * Math.PI * r0
-      const n: V3 = [Math.cos((a0 + a1) / 2), 0, Math.sin((a0 + a1) / 2)]
-      this.face([p0, q0, q1, p1], [
-        [u0, y0],
-        [u0, top],
-        [u1, top],
-        [u1, y0]
-      ], n)
+      const c0 = t.cos[i]
+      const s0 = t.sin[i]
+      const c1 = t.cos[i + 1]
+      const s1 = t.sin[i + 1]
+      const p0x = cx + c0 * r0
+      const p0z = cz + s0 * r0
+      const p1x = cx + c1 * r0
+      const p1z = cz + s1 * r0
+      const q0x = cx + c0 * r1
+      const q0z = cz + s0 * r1
+      const q1x = cx + c1 * r1
+      const q1z = cz + s1 * r1
+      const u0 = (i / seg) * k
+      const u1 = ((i + 1) / seg) * k
+      const nx = t.midCos[i]
+      const nz = t.midSin[i]
+      // side quad p0, q0, q1, p1
+      let base = pos.length / 3
+      pos.push(p0x, y0, p0z, q0x, top, q0z, q1x, top, q1z, p1x, y0, p1z)
+      nor.push(nx, 0, nz, nx, 0, nz, nx, 0, nz, nx, 0, nz)
+      uv.push(u0, y0, u0, top, u1, top, u1, y0)
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3)
+      tris += 2
       if (caps) {
-        if (r1 > 0) this.face([[cx, top, cz], q0, q1].reverse() as V3[], [[0, 0], [q1[0], q1[2]], [q0[0], q0[2]]], [0, 1, 0])
-        if (r0 > 0) this.face([[cx, y0, cz], p0, p1] as V3[], [[0, 0], [p0[0], p0[2]], [p1[0], p1[2]]], [0, -1, 0])
+        if (r1 > 0) {
+          base = pos.length / 3
+          pos.push(q1x, top, q1z, q0x, top, q0z, cx, top, cz)
+          nor.push(0, 1, 0, 0, 1, 0, 0, 1, 0)
+          uv.push(0, 0, q1x, q1z, q0x, q0z)
+          idx.push(base, base + 1, base + 2)
+          tris++
+        }
+        if (r0 > 0) {
+          base = pos.length / 3
+          pos.push(cx, y0, cz, p0x, y0, p0z, p1x, y0, p1z)
+          nor.push(0, -1, 0, 0, -1, 0, 0, -1, 0)
+          uv.push(0, 0, p0x, p0z, p1x, p1z)
+          idx.push(base, base + 1, base + 2)
+          tris++
+        }
       }
     }
+    this.mark(tris)
   }
 
   /** Low-poly sphere / ellipsoid. */
@@ -294,4 +329,28 @@ export function surfaceGeometry(mesh: THREE.Mesh, surface: SurfaceRef, same: (a:
   g.setAttribute('position', new THREE.Float32BufferAttribute(out, 3))
   g.computeVertexNormals()
   return g
+}
+
+const trigTables = new Map<number, { cos: Float64Array; sin: Float64Array; midCos: Float64Array; midSin: Float64Array }>()
+/** cos/sin at each of `seg` steps round a circle (and at the middle of each step), computed once per `seg`. */
+function trig(seg: number) {
+  let t = trigTables.get(seg)
+  if (!t) {
+    const cos = new Float64Array(seg + 1)
+    const sin = new Float64Array(seg + 1)
+    const midCos = new Float64Array(seg)
+    const midSin = new Float64Array(seg)
+    for (let i = 0; i <= seg; i++) {
+      const a = (i / seg) * Math.PI * 2
+      cos[i] = Math.cos(a)
+      sin[i] = Math.sin(a)
+      if (i < seg) {
+        const m = ((i + 0.5) / seg) * Math.PI * 2
+        midCos[i] = Math.cos(m)
+        midSin[i] = Math.sin(m)
+      }
+    }
+    trigTables.set(seg, (t = { cos, sin, midCos, midSin }))
+  }
+  return t
 }

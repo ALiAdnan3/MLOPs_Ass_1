@@ -1,6 +1,6 @@
 import { qiblaVector } from '../core/location'
 import { BylawPanel } from './BylawPanel'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { TriangleAlert, CircleAlert, Info, RotateCcw, Copy, GitCompare, Eye, EyeOff, CircleCheck } from 'lucide-react'
 import { useProject, commit } from '../state/store'
 import { useUI, type RightTab } from '../state/ui'
@@ -40,13 +40,26 @@ const TABS: { key: RightTab; label: string }[] = [
   { key: 'estimate', label: 'Cost' }
 ]
 
+/** The value once it has stopped changing for `ms` (the first value at once). */
+function useSettled<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value)
+  useEffect(() => {
+    if (value === settled) return
+    const t = setTimeout(() => setSettled(value), ms)
+    return () => clearTimeout(t)
+  }, [value]) // eslint-disable-line react-hooks/exhaustive-deps
+  return settled
+}
+
 export function Inspector() {
   const open = useUI((s) => s.inspectorOpen)
   const mode = useUI((s) => s.mode)
   const tab = useUI((s) => s.rightTab)
   const set = useUI((s) => s.set)
   const project = useProject((s) => s.project)
-  const issues = useMemo(() => validateHouse(houseOf(project)), [project.floors, project.site, project.plot]) // eslint-disable-line react-hooks/exhaustive-deps
+  // checked once editing pauses, not at every pointer move of a drag
+  const settled = useSettled(project, 300)
+  const issues = useMemo(() => validateHouse(houseOf(settled)), [settled.floors, settled.site, settled.plot]) // eslint-disable-line react-hooks/exhaustive-deps
   const errs = issues.filter((i) => i.severity === 'error').length
   if (mode === 'present') return null
   const modePanel =
@@ -188,18 +201,26 @@ function Stat({ k, v }: { k: string; v: string }) {
 export function MaterialPicker(props: { value?: string; fallback?: string; onChange: (id: string) => void; categories?: string[]; project: Project }) {
   const id = props.value ?? props.fallback
   const m = resolveMaterial(id, props.project.materials)
-  const all = [...props.project.materials, ...LIBRARY].filter((x) => !props.categories || props.categories.includes(x.category))
+  const cats = props.categories?.join('|') ?? ''
+  // the same option elements every render, so React skips the 100+ options while you drag
+  const options = useMemo(
+    () =>
+      [...props.project.materials, ...LIBRARY]
+        .filter((x) => !props.categories || props.categories.includes(x.category))
+        .map((x) => (
+          <option key={x.id} value={x.id}>
+            {x.source === 'library' ? '' : '★ '}
+            {x.name}
+          </option>
+        )),
+    [props.project.materials, cats] // eslint-disable-line react-hooks/exhaustive-deps
+  )
   const url = useMaterialThumb(m)
   return (
     <div className="row mat-pick" style={{ gap: 6 }}>
       <span className="swatch lg" style={thumbStyle(m, url)} />
       <select className="field" value={id ?? ''} onChange={(e) => props.onChange(e.target.value)}>
-        {all.map((x) => (
-          <option key={x.id} value={x.id}>
-            {x.source === 'library' ? '' : '★ '}
-            {x.name}
-          </option>
-        ))}
+        {options}
       </select>
     </div>
   )

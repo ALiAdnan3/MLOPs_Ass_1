@@ -26,6 +26,24 @@ export function materialThumb(m: MaterialDef, size = 128): Promise<string> {
   if (!m.procedural) return Promise.resolve('')
   // show ~0.6 m of the surface (tiles/planks read at a glance); paint shows its flat colour
   const scale = m.scale
+  // made entirely in a worker when possible: nothing for the page to shade or encode
+  const req = { kind: m.procedural.kind, colors: m.procedural.colors, params: m.procedural.params, seed: m.procedural.seed, size, scale }
+  const inWorker = texturePool.thumbnail(req, m.roughness, m.normalStrength, m.brightness, m.contrast, m.reflection)
+  if (inWorker) {
+    const done = inWorker
+      .then((blob) => {
+        const url = URL.createObjectURL(blob)
+        cache.set(key, url)
+        inflight.delete(key)
+        return url
+      })
+      .catch(() => {
+        inflight.delete(key)
+        return ''
+      })
+    inflight.set(key, done)
+    return done
+  }
   const p = texturePool
     .generate({ kind: m.procedural.kind, colors: m.procedural.colors, params: m.procedural.params, seed: m.procedural.seed, size, scale }, m.roughness, m.normalStrength, m.brightness, m.contrast, 'thumb')
     .then((maps) => {

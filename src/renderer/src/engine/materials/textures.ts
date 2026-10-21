@@ -11,7 +11,8 @@ export interface TexMaps {
   rough: Uint8ClampedArray
 }
 
-type Pending = { resolve: (m: TexMaps) => void; reject: (e: unknown) => void }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Pending = { resolve: (m: any) => void; reject: (e: unknown) => void }
 
 /**
  * Texture generation in workers. One shared queue feeds whichever worker is free, textures for the
@@ -20,11 +21,15 @@ type Pending = { resolve: (m: TexMaps) => void; reject: (e: unknown) => void }
  */
 const RANK = { view: 0, thumb: 1, upgrade: 2 } as const
 
+interface TexturePool {
+  thumbnail(req: TexRequest, roughness: number, normalStrength: number, brightness: number, contrast: number, reflection: number): Promise<Blob> | null
+}
+
 class TexturePool {
   private workers: Worker[] = []
   private idle: Worker[] = []
   /** 0: a first, small texture for the 3D view; 1: a swatch thumbnail; 2: a full-size upgrade. */
-  private queue: { job: TexJob; rank: number }[] = []
+  private queue: { job: TexJob; rank: number; key: string }[] = []
   private jobId = 1
   private pending = new Map<number, Pending>()
   private same = new Map<string, Promise<TexMaps>>()
@@ -56,6 +61,7 @@ class TexturePool {
           if (!p) return
           this.pending.delete(d.id)
           if (d.error) p.reject(new Error(d.error))
+          else if (d.thumb) p.resolve(d.thumb)
           else p.resolve({ size: d.size, color: new Uint8ClampedArray(d.color), normal: new Uint8ClampedArray(d.normal), rough: new Uint8ClampedArray(d.rough) })
         }
         w.onerror = () => {
@@ -96,19 +102,27 @@ class TexturePool {
       adjustColor(r.color, brightness, contrast)
       return Promise.resolve({ size: r.size, color: r.color, normal: heightToNormal(r.height, r.size, 1.5 + normalStrength * 2.5), rough: roughnessMap(roughness, r.rough, r.size) })
     }
-    const key = JSON.stringify([req, roughness, normalStrength, brightness, contrast])
+    return this.submit({ req, roughness, normalStrength, brightness, contrast }, priority)!
+  }
+
+  /** Queue a job (identical jobs in flight share one). Null when there are no workers. */
+  submit(job: Omit<TexJob, 'id'>, priority: 'view' | 'thumb' | 'upgrade'): Promise<any> | null { // eslint-disable-line @typescript-eslint/no-explicit-any
+    this.ensure()
+    if (this.failed || !this.workers.length) return null
+    const key = JSON.stringify([job.req, job.roughness, job.normalStrength, job.brightness, job.contrast, job.thumb ?? null])
     const running = this.same.get(key)
     if (running) {
       // a more urgent request lifts the same request still waiting in the queue
       const rank = RANK[priority]
-      for (const q of this.queue) if (q.rank > rank && JSON.stringify([q.job.req, q.job.roughness, q.job.normalStrength, q.job.brightness, q.job.contrast]) === key) q.rank = rank
+      for (const q of this.queue) if (q.rank > rank && q.key === key) q.rank = rank
       return running
     }
     const id = this.jobId++
-    const job: TexJob = { id, req, roughness, normalStrength, brightness, contrast }
-    const promise = new Promise<TexMaps>((resolve, reject) => {
+    const full: TexJob = { ...job, id }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const promise = new Promise<any>((resolve, reject) => {
       this.pending.set(id, { resolve, reject })
-      this.queue.push({ job, rank: RANK[priority] })
+      this.queue.push({ job: full, rank: RANK[priority], key })
       this.pump()
     })
     this.same.set(key, promise)
@@ -119,3 +133,11 @@ class TexturePool {
 }
 
 export const texturePool = new TexturePool()
+
+/**
+ * A finished swatch image made entirely in a worker (generated, shaded and JPEG-encoded), so
+ * thumbnails cost the page nothing. Null when workers are unavailable.
+ */
+TexturePool.prototype.thumbnail = function (this: TexturePool, req: TexRequest, roughness: number, normalStrength: number, brightness: number, contrast: number, reflection: number): Promise<Blob> | null {
+  return this.submit({ req, roughness, normalStrength, brightness, contrast, thumb: { reflection } }, 'thumb')
+}

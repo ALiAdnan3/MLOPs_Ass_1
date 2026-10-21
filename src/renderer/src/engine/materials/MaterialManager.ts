@@ -46,6 +46,8 @@ export class MaterialManager {
   texSize = 512
   anisotropy = 4
   onUpdate: () => void = () => {}
+  /** A texture is ready to upload (the engine sends it to the GPU ahead of first use). */
+  onTexture: (t: THREE.Texture) => void = () => {}
   clippingPlanes: THREE.Plane[] = []
   /** Texture sets still being generated / decoded (first, possibly small, versions). */
   pending = 0
@@ -230,6 +232,7 @@ export class MaterialManager {
     t.minFilter = THREE.LinearMipmapLinearFilter
     t.magFilter = THREE.LinearFilter
     t.needsUpdate = true
+    this.onTexture(t)
   }
 
   private dataTex(data: Uint8ClampedArray, size: number, def: MaterialDef, srgb: boolean) {

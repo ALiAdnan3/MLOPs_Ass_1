@@ -2,10 +2,13 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GradientSky } from './lighting/GradientSky'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { captureCanvas } from '../render/encode'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
+import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js'
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js'
 import type { CameraBookmark, Floor, Project, Quality, SurfaceRef, Vec2 } from '../core/model/types'
 import { MaterialManager } from './materials/MaterialManager'
@@ -51,8 +54,8 @@ interface FloorEntry {
 const QUALITY: Record<Quality, { pixelRatio: number; shadows: number; tex: number; lights: number; post: boolean; ao: boolean; aa: boolean }> = {
   low: { pixelRatio: 1, shadows: 0, tex: 256, lights: 4, post: false, ao: false, aa: false },
   medium: { pixelRatio: 1, shadows: 1024, tex: 512, lights: 8, post: false, ao: false, aa: true },
-  high: { pixelRatio: 1.5, shadows: 2048, tex: 1024, lights: 14, post: true, ao: false, aa: true },
-  ultra: { pixelRatio: 2, shadows: 4096, tex: 1024, lights: 24, post: true, ao: true, aa: true }
+  high: { pixelRatio: 1.5, shadows: 2048, tex: 1024, lights: 8, post: true, ao: false, aa: true },
+  ultra: { pixelRatio: 2, shadows: 4096, tex: 1024, lights: 12, post: true, ao: true, aa: true }
 }
 
 /** How strongly the night surround lights the scene (rooms are lit mainly by their own lights). */
@@ -99,7 +102,14 @@ export class Engine {
   private selectMesh: THREE.Mesh | null = null
   private clip = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e6)
   private envTex: THREE.Texture | null = null
+  private studioEnv() {
+    if (!this.envTex) {
+      this.envTex = this.pmrem().fromScene(new RoomEnvironment(), 0.04).texture
+    }
+    return this.envTex
+  }
   private skyEnv: { scene: THREE.Scene; sky: GradientSky; rt: THREE.WebGLRenderTarget | null; key: string } | null = null
+  private skyCache = new Map<string, THREE.WebGLRenderTarget>()
   private skyState = { warm: 0, night: 0 }
 
   /** Sun direction and sky tint as last applied (the photoreal renderer rebuilds the sky from them). */
@@ -129,6 +139,7 @@ export class Engine {
     this.renderer.localClippingEnabled = true
     this.mats.clippingPlanes.push(this.clip)
     this.mats.onUpdate = () => this.invalidate()
+    this.mats.onTexture = (t) => this.queueUpload(t)
     this.mats.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy())
 
     canvas.addEventListener('webglcontextlost', (e) => {
@@ -178,10 +189,8 @@ export class Engine {
     this.stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: '#dfe6ff', size: 2, sizeAttenuation: false, transparent: true, opacity: 0, fog: false }))
     this.scene.add(this.stars)
 
-    const pmrem = new THREE.PMREMGenerator(this.renderer)
-    this.envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
-    this.scene.environment = this.envTex
-    pmrem.dispose()
+    // the studio environment (clay view only) is made on first use: baking it here cost ~0.7 s of
+    // shader compiling before the first frame
     this.setQuality('high')
     this.loop = this.loop.bind(this)
     this.raf = requestAnimationFrame(this.loop)
@@ -222,7 +231,7 @@ export class Engine {
     this.ortho.left = -half * a
     this.ortho.right = half * a
     this.ortho.updateProjectionMatrix()
-    this.composer?.setSize(w, h)
+    this.sizePost(w, h)
     this.invalidate()
   }
 
@@ -256,14 +265,15 @@ export class Engine {
     this.composer = null
     this.bloom = null
     this.gtao = null
+    this.fxaa = null
+    this.postWarm = null
     const Q = QUALITY[this.quality]
     if (!Q.post) return
     const size = this.renderer.getSize(new THREE.Vector2())
-    // multisampled, so edges stay smooth through the passes (the canvas's own antialiasing does not
-    // reach a render target)
-    const pr = this.renderer.getPixelRatio()
-    const target = new THREE.WebGLRenderTarget(Math.max(1, size.x * pr), Math.max(1, size.y * pr), { type: THREE.HalfFloatType, samples: Q.aa ? 4 : 0 })
-    this.composer = new EffectComposer(this.renderer, target)
+    // No multisampling on the passes' buffers: on ANGLE's Direct3D backend a multisampled half-float
+    // target stalled the view for ~0.5 s every second or so. Edges are smoothed by FXAA at the end
+    // instead (pictures are supersampled anyway).
+    this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
     if (Q.ao) {
       this.gtao = new GTAOPass(this.scene, this.camera, size.x, size.y)
@@ -273,6 +283,59 @@ export class Engine {
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.3, 0.45, 0.92)
     this.composer.addPass(this.bloom)
     this.composer.addPass(new OutputPass())
+    if (Q.aa) {
+      this.fxaa = new ShaderPass(FXAAShader)
+      this.composer.addPass(this.fxaa)
+    }
+    this.sizePost(size.x, size.y)
+  }
+
+  private fxaa: ShaderPass | null = null
+  private postWarm: Promise<void> | null = null
+  /**
+   * The post-processing passes' shaders (bloom, output, FXAA) compiled on their first frame, ~0.6 s
+   * with the window frozen. Compile them in the background first, against the target each draws
+   * into (the last pass draws to the screen).
+   */
+  private warmPost(): Promise<void> {
+    const composer = this.composer
+    if (!composer) return Promise.resolve()
+    if (this.postWarm) return this.postWarm
+    const materials = new Set<THREE.Material>()
+    const prev = this.renderer.getRenderTarget()
+    const quad = new THREE.PlaneGeometry(2, 2)
+    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
+    const passes = composer.passes.filter((x) => x.enabled)
+    passes.forEach((pass, i) => {
+      // OutputPass sets its defines on its first render; set them as it would, so they stay
+      const out = pass as unknown as { _outputColorSpace?: string; _toneMapping?: number; material?: THREE.ShaderMaterial }
+      if (pass instanceof OutputPass && out.material) {
+        out._outputColorSpace = this.renderer.outputColorSpace
+        out._toneMapping = this.renderer.toneMapping
+        out.material.defines = {}
+        if (THREE.ColorManagement.getTransfer(this.renderer.outputColorSpace) === THREE.SRGBTransfer) out.material.defines.SRGB_TRANSFER = ''
+        if (this.renderer.toneMapping === THREE.ACESFilmicToneMapping) out.material.defines.ACES_FILMIC_TONE_MAPPING = ''
+        out.material.needsUpdate = true
+      }
+      const found = new Set<THREE.Material>()
+      for (const v of Object.values(pass as unknown as Record<string, unknown>)) {
+        if (v instanceof THREE.Material) found.add(v)
+        else if (Array.isArray(v)) for (const x of v) if (x instanceof THREE.Material) found.add(x)
+      }
+      this.renderer.setRenderTarget(i === passes.length - 1 ? null : composer.readBuffer)
+      for (const m of found) for (const x of this.renderer.compile(new THREE.Mesh(quad, m), cam)) materials.add(x)
+    })
+    this.renderer.setRenderTarget(prev)
+    this.postWarm = this.programsReady(materials)
+    return this.postWarm
+  }
+  /** Size the passes (FXAA works in pixels of the drawing buffer). */
+  private sizePost(w: number, h: number) {
+    this.composer?.setSize(w, h)
+    if (this.fxaa) {
+      const pr = this.renderer.getPixelRatio()
+      ;(this.fxaa.material.uniforms.resolution.value as THREE.Vector2).set(1 / Math.max(1, w * pr), 1 / Math.max(1, h * pr))
+    }
   }
 
   // ── scene sync ────────────────────────────────────────────────────────────
@@ -466,7 +529,7 @@ export class Engine {
 
   private updateSkyEnvironment(night: number) {
     if (this.options.viewMode === 'architectural') {
-      this.scene.environment = this.envTex
+      this.scene.environment = this.studioEnv()
       this.scene.environmentIntensity = 0.8
       return
     }
@@ -487,17 +550,86 @@ export class Engine {
       this.skyEnv = { scene, sky, rt: null, key: '' }
     }
     const e = this.skyEnv
+    if (!this.pmremWarm) {
+      // first bake: compile the bake's shaders in the background, then bake (see warmPmrem)
+      void this.warmPmrem().then(() => this.applyLighting())
+      return
+    }
     if (e.key !== key) {
       e.key = key
-      e.sky.update(sp, this.skyState.warm, this.skyState.night)
-      const pm = new THREE.PMREMGenerator(this.renderer)
-      const rt = pm.fromScene(e.scene, 0.02, 0.1, 200)
-      pm.dispose()
-      e.rt?.dispose()
+      // pictures switch between a few lighting setups (sunset cards, the evening hero, daylight
+      // previews): keep the last few baked skies instead of re-baking at every switch
+      let rt = this.skyCache.get(key)
+      if (rt) this.skyCache.delete(key)
+      else {
+        e.sky.update(sp, this.skyState.warm, this.skyState.night)
+        rt = this.pmrem().fromScene(e.scene, 0.02, 0.1, 200)
+      }
+      this.skyCache.set(key, rt)
+      while (this.skyCache.size > 4) {
+        const [old, oldRt] = this.skyCache.entries().next().value!
+        this.skyCache.delete(old)
+        oldRt.dispose()
+      }
       e.rt = rt
     }
     this.scene.environment = e.rt!.texture
     this.scene.environmentIntensity = 0.85 + (1 - night) * 0.35
+  }
+
+  private pmremGen: THREE.PMREMGenerator | null = null
+  private pmrem() {
+    return (this.pmremGen ??= new THREE.PMREMGenerator(this.renderer))
+  }
+  private pmremWarm = false
+  private pmremWarming: Promise<void> | null = null
+  /**
+   * The environment bake's own shaders (three.js's blur and GGX filters, and the sky) compiled
+   * synchronously on the first bake: ~0.6 s with the window frozen at start-up. Here they are
+   * created first and compiled by the GPU in the background; the bake then runs at once.
+   * Uses PMREMGenerator internals (three r186); without them it simply bakes as before.
+   */
+  private warmPmrem(): Promise<void> {
+    if (this.pmremWarm) return Promise.resolve()
+    if (this.pmremWarming) return this.pmremWarming
+    const pm = this.pmrem() as unknown as { _setSize?(n: number): void; _allocateTargets?(): THREE.WebGLRenderTarget; _blurMaterial?: THREE.Material; _ggxMaterial?: THREE.Material; _pingPongRenderTarget?: THREE.WebGLRenderTarget; _lodMeshes?: THREE.Mesh[] }
+    const materials = new Set<THREE.Material>()
+    const prev = this.renderer.getRenderTarget()
+    try {
+      if (pm._setSize && pm._allocateTargets) {
+        pm._setSize(256)
+        const rt = pm._allocateTargets()
+        // the filters, on the generator's own meshes and target (program variants depend on both)
+        const lod = pm._lodMeshes?.[0]
+        if (lod && pm._pingPongRenderTarget) {
+          this.renderer.setRenderTarget(pm._pingPongRenderTarget)
+          const flat = new THREE.OrthographicCamera()
+          const orig = lod.material
+          for (const m of [pm._blurMaterial, pm._ggxMaterial]) {
+            if (!m) continue
+            lod.material = m
+            for (const x of this.renderer.compile(lod, flat)) materials.add(x)
+          }
+          lod.material = orig
+        }
+        // the bake's background box (a plain back-faced material) and the sky itself
+        this.renderer.setRenderTarget(rt)
+        const cube = new THREE.PerspectiveCamera(90, 1, 0.1, 200)
+        const bg = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial({ name: 'PMREM.Background', side: THREE.BackSide, depthWrite: false, depthTest: false }))
+        for (const x of this.renderer.compile(bg, cube)) materials.add(x)
+        if (this.skyEnv) for (const x of this.renderer.compile(this.skyEnv.scene, cube)) materials.add(x)
+        rt.dispose()
+      }
+    } catch {
+      /* internals changed: the first bake compiles as it used to */
+    } finally {
+      this.renderer.setRenderTarget(prev)
+    }
+    this.pmremWarming = this.programsReady(materials).then(() => {
+      this.pmremWarm = true
+      this.pmremWarming = null
+    })
+    return this.pmremWarming
   }
 
   private nightEnv: THREE.Texture | null = null
@@ -516,9 +648,7 @@ export class Engine {
     }
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3))
     scene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })))
-    const pm = new THREE.PMREMGenerator(this.renderer)
-    this.nightEnv = pm.fromScene(scene, 0.04).texture
-    pm.dispose()
+    this.nightEnv = this.pmrem().fromScene(scene, 0.04).texture
     geo.dispose()
     return this.nightEnv
   }
@@ -874,6 +1004,7 @@ export class Engine {
     this.raf = requestAnimationFrame(this.loop)
     this.timer.update()
     const dt = Math.min(0.1, this.timer.getDelta())
+    if (!this.contextLost) this.drainUploads()
     if (!this.container || this.contextLost || this.holds > 0) return
     let dirty = this.needs
     if (this.flight) {
@@ -928,6 +1059,35 @@ export class Engine {
       this.camera.lookAt(opts.pose.target)
       if (opts.pose.fov) this.camera.fov = opts.pose.fov
     }
+    // Without resizing the canvas (each resize reallocated the GPU buffers twice per picture): draw
+    // the picture's view into a centred region of the canvas as it is, crop that region and scale
+    // it down. Small pictures come out supersampled 2-4x. Too small a canvas for a big picture
+    // falls back to resizing.
+    const buf = this.renderer.getDrawingBufferSize(new THREE.Vector2())
+    const as = w / h
+    const cw = as > buf.x / buf.y ? buf.x : Math.floor(buf.y * as)
+    const ch = as > buf.x / buf.y ? Math.floor(buf.x / as) : buf.y
+    if (!opts.supersample && cw >= w * 1.2 && ch >= h * 1.2) {
+      const ox = Math.floor((buf.x - cw) / 2)
+      const oy = Math.floor((buf.y - ch) / 2)
+      this.camera.aspect = as
+      // the picture's frustum is the full view; the canvas shows it widened to its own shape
+      this.camera.setViewOffset(cw, ch, -ox, -oy, buf.x, buf.y)
+      this.camera.updateProjectionMatrix()
+      if (opts.pose) this.placeNightLights(this.night)
+      this.renderFrame()
+      const blob = captureCanvas(this.canvas, w, h, opts.type ?? 'image/png', opts.quality ?? 0.92, { x: ox, y: oy, width: cw, height: ch })
+      this.camera.clearViewOffset()
+      this.camera.position.copy(prevPos)
+      this.controls.target.copy(prevTarget)
+      this.camera.fov = prevFov
+      this.camera.aspect = prevAspect
+      this.camera.updateProjectionMatrix()
+      this.controls.update()
+      if (opts.pose) this.placeNightLights(this.night)
+      this.invalidate()
+      return blob
+    }
     // drawn larger and scaled down: clean edges on walls, railings and furniture (the post-processing
     // passes have no multisampling of their own)
     const ss = opts.supersample ?? (w * h <= 1_100_000 ? 2 : w * h <= 2_600_000 ? 1.5 : 1)
@@ -937,21 +1097,11 @@ export class Engine {
     this.renderer.setSize(W, H, false)
     this.camera.aspect = w / h
     this.camera.updateProjectionMatrix()
-    this.composer?.setSize(W, H)
+    this.sizePost(W, H)
     if (opts.pose) this.placeNightLights(this.night)
     this.renderFrame()
-    let source: HTMLCanvasElement = this.canvas
-    if (ss > 1) {
-      source = document.createElement('canvas')
-      source.width = w
-      source.height = h
-      const g = source.getContext('2d')!
-      g.imageSmoothingEnabled = true
-      g.imageSmoothingQuality = 'high'
-      g.drawImage(this.canvas, 0, 0, W, H, 0, 0, w, h)
-    }
-    // toBlob copies the canvas immediately and encodes in the background
-    const blob = new Promise<Blob>((resolve, reject) => source.toBlob((b) => (b ? resolve(b) : reject(new Error('snapshot failed'))), opts.type ?? 'image/png', opts.quality ?? 0.92))
+    // the frame is taken now; scaling down and encoding happen off the main thread
+    const blob = captureCanvas(this.canvas, w, h, opts.type ?? 'image/png', opts.quality ?? 0.92)
     this.camera.position.copy(prevPos)
     this.controls.target.copy(prevTarget)
     this.camera.fov = prevFov
@@ -963,6 +1113,34 @@ export class Engine {
     if (opts.pose) this.placeNightLights(this.night)
     this.invalidate()
     return blob
+  }
+
+  // ── texture uploads ───────────────────────────────────────────────────────
+  /**
+   * Textures waiting to go to the GPU. three.js uploads a texture the first time something using it
+   * comes into view, so turning the camera towards new walls uploaded several large textures (and
+   * their mipmaps) in one frame and froze the view for half a second. Uploading each as it arrives,
+   * a little per frame, means it is already there when it is first seen.
+   */
+  private uploads = new Set<THREE.Texture>()
+  private queueUpload(t: THREE.Texture) {
+    if (this.uploads.has(t)) return
+    this.uploads.add(t)
+    t.addEventListener('dispose', () => this.uploads.delete(t))
+  }
+  private drainUploads() {
+    if (!this.uploads.size) return
+    // budget by data, not by time: the upload call returns at once and the GPU does the work
+    // (copy plus mipmaps) later, so a time budget let several large textures land in one frame
+    let bytes = 0
+    for (const t of this.uploads) {
+      const img = t.image as { width?: number; height?: number } | undefined
+      const size = (img?.width ?? 256) * (img?.height ?? 256) * 4
+      if (bytes && bytes + size > 4_300_000) break
+      this.uploads.delete(t)
+      this.renderer.initTexture(t)
+      bytes += size
+    }
   }
 
   // ── build reuse ───────────────────────────────────────────────────────────
@@ -1023,13 +1201,22 @@ export class Engine {
     if (this.compiledFor.has(path)) return Promise.resolve()
     this.programsDirty = false
     this.compiledFor.add(path)
-    // the programs are created now, against the target this path draws into; the GPU finishes
-    // compiling them in the background and the promise resolves when all are ready
-    const prevTarget = this.renderer.getRenderTarget()
-    if (path === 'post') this.renderer.setRenderTarget(this.composer!.readBuffer)
-    const materials = this.renderer.compile(this.scene, this.active)
-    this.renderer.setRenderTarget(prevTarget)
-    const job: Promise<void> = this.programsReady(materials)
+    // Programs are created against the target this path draws into; the GPU compiles them in the
+    // background. A part of the scene at a time (each floor, the site, the roof, then the rest),
+    // with a frame between parts: compiling everything at once kept the GPU from presenting any
+    // frame for seconds, so the whole window looked frozen.
+    const parts: THREE.Object3D[] = [...this.houseRoot.children, this.siteRoot, this.roofRoot, this.scene]
+    const compileAll = async () => {
+      for (const part of parts) {
+        const prevTarget = this.renderer.getRenderTarget()
+        if (path === 'post' && this.composer) this.renderer.setRenderTarget(this.composer.readBuffer)
+        const materials = this.renderer.compile(part, this.active, this.scene)
+        this.renderer.setRenderTarget(prevTarget)
+        await this.programsReady(materials)
+        await new Promise((r) => setTimeout(r, 16))
+      }
+    }
+    const job: Promise<void> = Promise.all([compileAll(), this.pmremWarming ?? Promise.resolve(), path === 'post' ? this.warmPost() : Promise.resolve()])
       .then(
         () => undefined,
         () => undefined
@@ -1075,7 +1262,8 @@ export class Engine {
     o.parent?.remove(o)
     o.traverse((x) => {
       const m = x as THREE.Mesh
-      if (m.geometry) m.geometry.dispose()
+      // shared shapes (plants) outlive any one build
+      if (m.geometry && !m.geometry.userData.shared) m.geometry.dispose()
     })
   }
 

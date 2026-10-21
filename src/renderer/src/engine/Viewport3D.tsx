@@ -59,11 +59,36 @@ export function Viewport3D() {
     }
     sync()
     engine.setCameraPreset('orbit', undefined, false)
+    // Edits arrive at pointer rate while dragging in the plan, and rebuilding a large floor takes
+    // 0.1-0.3 s, so rebuilding during the drag made it stutter. Rebuild once changes pause (0.12 s),
+    // and at least every 0.8 s through a long drag; nothing at all while the view is hidden (it
+    // catches up when shown).
+    let dirty = false
+    let timer = 0
+    let firstChange = 0
+    const visible = () => el.offsetWidth > 0 && el.offsetHeight > 0
+    const flush = () => {
+      timer = 0
+      firstChange = 0
+      if (!dirty || !visible()) return
+      dirty = false
+      sync()
+    }
+    const request = () => {
+      dirty = true
+      if (!visible()) return
+      const now = performance.now()
+      if (!firstChange) firstChange = now
+      clearTimeout(timer)
+      timer = window.setTimeout(flush, now - firstChange > 800 ? 0 : 120)
+    }
+    const shown = new ResizeObserver(() => dirty && request())
+    shown.observe(el)
     const a = useProject.subscribe((s, prev) => {
-      if (s.project !== prev.project) sync()
+      if (s.project !== prev.project) request()
     })
     const b = useUI.subscribe((s, prev) => {
-      if (s.floorId !== prev.floorId || s.showAllFloors !== prev.showAllFloors || s.viewMode !== prev.viewMode || s.explodeGap !== prev.explodeGap) sync()
+      if (s.floorId !== prev.floorId || s.showAllFloors !== prev.showAllFloors || s.viewMode !== prev.viewMode || s.explodeGap !== prev.explodeGap) request()
       if (s.selection !== prev.selection) {
         const sel = s.selection[0]
         engine.highlight(sel ? entitySurface(sel) : null, 'select')
@@ -73,6 +98,8 @@ export function Viewport3D() {
     return () => {
       a()
       b()
+      shown.disconnect()
+      clearTimeout(timer)
       engine.setController(null)
       engine.unmount(el)
     }
