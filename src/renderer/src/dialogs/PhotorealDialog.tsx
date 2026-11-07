@@ -71,7 +71,7 @@ export function PhotorealDialog({ onClose }: { onClose: () => void }) {
     useUI.getState().toast({ kind: 'success', title: 'Added to the concept board', body: 'It appears in the presentation too.' })
   }
   const switchBackend = async () => {
-    await platform.settings.set({ graphicsBackend: 'opengl' })
+    await platform.settings.set({ graphicsBackend: 'vulkan' })
     await platform.relaunch()
   }
 
@@ -117,20 +117,20 @@ export function PhotorealDialog({ onClose }: { onClose: () => void }) {
       ) : !support.ok ? (
         <div className="col" style={{ gap: 10 }}>
           <p style={{ margin: 0 }}>
-            Photoreal rendering needs the OpenGL graphics backend. This computer is using Direct3D ({support.backend}), which returns black surfaces for the path tracer.
+            Photoreal rendering needs the Vulkan graphics backend. This computer is using Direct3D ({support.backend}), which returns black surfaces for the path tracer.
           </p>
           {isDesktop ? (
             <div className="row" style={{ gap: 8 }}>
               <button className="btn primary" onClick={() => void switchBackend()}>
-                Switch to OpenGL and restart
+                Switch to Vulkan and restart
               </button>
               <span className="faint" style={{ fontSize: 12 }}>
-                Your work is autosaved first. You can switch back in Settings.
+                Your work is autosaved first. If Vulkan does not work on this computer, the app switches back by itself.
               </span>
             </div>
           ) : (
             <p className="faint" style={{ margin: 0, fontSize: 12 }}>
-              In a browser, set chrome://flags/#use-angle to OpenGL, then reload.
+              In a browser, set chrome://flags/#use-angle to Vulkan, then reload.
             </p>
           )}
         </div>

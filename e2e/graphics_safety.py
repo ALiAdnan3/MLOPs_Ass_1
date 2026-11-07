@@ -50,19 +50,23 @@ def run(settings: dict, seconds: float, extra=()):
 
 base = {"theme": "dark", "quality": "high", "uiMode": "beginner", "aiProvider": "offline", "autosaveSeconds": 20, "firstRunDone": True}
 
-# 1. the last start with OpenGL never got as far as drawing (the user closed a black window)
-after, _ = run({**base, "graphicsBackend": "opengl", "graphicsTrial": "opengl"}, 6)
+# 0. OpenGL is no longer offered: a saved OpenGL choice starts as Automatic
+after, _ = run({**base, "graphicsBackend": "opengl"}, 6)
+check("saved OpenGL becomes Automatic", after.get("graphicsBackend") == "auto", after)
+
+# 1. the last start with Vulkan never got as far as drawing (the user closed a black window)
+after, _ = run({**base, "graphicsBackend": "vulkan", "graphicsTrial": "vulkan"}, 6)
 check("stuck trial: next start goes back to Automatic", after.get("graphicsBackend") == "auto", after)
-check("stuck trial: the user is told once", after.get("graphicsFailed") in ("opengl", None), after.get("graphicsFailed"))
+check("stuck trial: the user is told once", after.get("graphicsFailed") in ("vulkan", None), after.get("graphicsFailed"))
 
 # 2. --safe-graphics always starts with Automatic
 after, _ = run({**base, "graphicsBackend": "vulkan"}, 6, ["--safe-graphics"])
 check("--safe-graphics: Automatic", after.get("graphicsBackend") == "auto", after)
 
-# 3. a fresh OpenGL trial: either it works and is confirmed, or it is caught and reverted
-after, log = run({**base, "graphicsBackend": "opengl"}, 22)
-outcome = "confirmed" if after.get("graphicsVerified") == "opengl" and after.get("graphicsBackend") == "opengl" else "reverted" if after.get("graphicsBackend") == "auto" else "undecided"
-check("OpenGL trial decided (confirmed or reverted)", outcome in ("confirmed", "reverted"), {"outcome": outcome, "settings": after, "log": log.strip().splitlines()[-2:] if log else []})
+# 3. a fresh Vulkan trial: either it works and is confirmed, or it is caught and reverted
+after, log = run({**base, "graphicsBackend": "vulkan"}, 22)
+outcome = "confirmed" if after.get("graphicsVerified") == "vulkan" and after.get("graphicsBackend") == "vulkan" else "reverted" if after.get("graphicsBackend") == "auto" else "undecided"
+check("Vulkan trial decided (confirmed or reverted)", outcome in ("confirmed", "reverted"), {"outcome": outcome, "settings": after, "log": log.strip().splitlines()[-2:] if log else []})
 check("no trial left pending", "graphicsTrial" not in after or after.get("graphicsBackend") == "auto", after)
 
 print("GRAPHICS SAFETY PASSED" if ok else "GRAPHICS SAFETY FAILED")

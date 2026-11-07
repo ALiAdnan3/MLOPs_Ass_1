@@ -174,13 +174,14 @@ function registerIpc() {
   })
 }
 
-// graphics backend (amendment A6): Direct3D by default; OpenGL or Vulkan when the user chose it,
-// which the photoreal path tracer needs on Windows. A backend is checked before it is trusted (A12).
+// graphics backend (amendment A6): Direct3D by default; Vulkan when the user chose it, which the
+// photoreal path tracer needs on Windows. A backend is checked before it is trusted (A12). OpenGL
+// was removed: it crashed the graphics process on users' drivers.
 // decided after the single-instance check below: a second launch while the app is open must not
 // touch the setting the running window is trying
 let graphics: ReturnType<typeof store.graphicsBackendForStartup> = { backend: 'auto', trial: false }
 
-const BACKEND_NAME = { opengl: 'OpenGL', vulkan: 'Vulkan', auto: 'Automatic' } as const
+const BACKEND_NAME = { vulkan: 'Vulkan', auto: 'Automatic' } as const
 let reverting = false
 /** The chosen backend does not work here: say so, go back to Automatic and restart. */
 async function revertGraphics(why: string) {
@@ -243,8 +244,7 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) app.quit()
 else {
   graphics = store.graphicsBackendForStartup(process.argv.includes('--safe-graphics'))
-  if (graphics.backend === 'opengl') app.commandLine.appendSwitch('use-angle', 'gl')
-  else if (graphics.backend === 'vulkan') app.commandLine.appendSwitch('use-angle', 'vulkan')
+  if (graphics.backend === 'vulkan') app.commandLine.appendSwitch('use-angle', 'vulkan')
   app.on('second-instance', (_e, argv) => {
     const f = fileArg(argv)
     if (win) {

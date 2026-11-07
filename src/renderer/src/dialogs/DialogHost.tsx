@@ -130,7 +130,7 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
                 <div className="prop">
                   <label>Graphics</label>
                   <div className="col" style={{ gap: 4, alignItems: 'stretch' }}>
-                    <Seg value={app.graphicsBackend ?? 'auto'} onChange={async (v) => setApp(await platform.settings.set({ graphicsBackend: v }))} options={[{ value: 'auto', label: 'Automatic', tip: 'Direct3D on Windows' }, { value: 'opengl', label: 'OpenGL', tip: 'Needed for photoreal renders on Windows' }, { value: 'vulkan', label: 'Vulkan' }]} />
+                    <Seg value={app.graphicsBackend ?? 'auto'} onChange={async (v) => setApp(await platform.settings.set({ graphicsBackend: v }))} options={[{ value: 'auto', label: 'Automatic', tip: 'Direct3D on Windows (recommended)' }, { value: 'vulkan', label: 'Vulkan', tip: 'Needed for photoreal renders on Windows' }]} />
                     <button className="link-btn" style={{ alignSelf: 'flex-start', marginTop: 0 }} onClick={() => void platform.relaunch()}>
                       Restart to apply
                     </button>

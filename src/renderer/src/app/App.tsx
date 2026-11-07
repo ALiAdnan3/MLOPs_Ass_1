@@ -33,7 +33,7 @@ export function App() {
       configureAutosave(s.autosaveSeconds)
       // a graphics setting that did not work was switched back at start-up: say so once
       if (s.graphicsFailed) {
-        const name = s.graphicsFailed === 'opengl' ? 'OpenGL' : 'Vulkan'
+        const name = 'Vulkan'
         useUI.getState().toast({ kind: 'info', title: `Graphics switched back to Automatic`, body: `${name} left the window black or crashed on this computer, so HomeForge AI went back to Automatic. Photoreal renders may not be available.` })
         void platform.settings.set({ graphicsFailed: undefined })
       }

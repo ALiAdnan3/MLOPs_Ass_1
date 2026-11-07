@@ -33,10 +33,13 @@ export interface AppSettings {
   /** GPT Image model and quality for AI photos. */
   imageModel?: ImageModelId
   imageQuality?: ImageQuality
-  /** ANGLE backend on Windows (amendment A6): 'auto' keeps Direct3D; the path tracer needs OpenGL or Vulkan. Applied at start-up. */
-  graphicsBackend?: 'auto' | 'opengl' | 'vulkan'
+  /**
+   * ANGLE backend on Windows (amendment A6): 'auto' keeps Direct3D; the path tracer needs Vulkan.
+   * Applied at start-up. OpenGL was removed (A12): it crashed the graphics process on users' drivers.
+   */
+  graphicsBackend?: 'auto' | 'vulkan'
   /** A graphics backend that failed on this computer and was switched back to Automatic (shown once). */
-  graphicsFailed?: 'opengl' | 'vulkan'
+  graphicsFailed?: 'vulkan'
   autosaveSeconds: number
   firstRunDone: boolean
 }

@@ -252,3 +252,4 @@ Found by a user: choosing **Settings → Graphics → OpenGL** on a computer who
   - A stuck trial reverts.
   - `--safe-graphics` works.
   - A fresh OpenGL trial on the development machine was caught: the GPU process crashed, the app reverted and restarted.
+- **OpenGL removed.** It crashed the graphics process on users' drivers. Settings → Graphics now offers Automatic (Direct3D, recommended) and Vulkan. A saved OpenGL choice starts as Automatic. Photoreal renders, which need a non-Direct3D backend, now offer Vulkan, still under the safety net above.

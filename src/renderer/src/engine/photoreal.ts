@@ -12,7 +12,7 @@ import { GradientSky } from './lighting/GradientSky'
 
 /**
  * The path tracer needs float render targets and texture arrays that ANGLE's Direct3D backend
- * mishandles (surfaces come back black), so on Direct3D the app offers to switch to OpenGL.
+ * mishandles (surfaces come back black), so on Direct3D the app offers to switch to Vulkan.
  */
 export function photorealSupport(e: Engine): { ok: boolean; backend: string } {
   const gl = e.renderer.getContext()

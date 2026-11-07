@@ -84,9 +84,9 @@ export async function autosaveRemove(id: string) {
 // ── settings & API key ──────────────────────────────────────────────────────
 interface Stored extends Omit<AppSettings, 'hasApiKey' | 'hasOpenAiKey'> {
   /** A backend being tried: set at start-up, cleared once the window is seen drawing with it. */
-  graphicsTrial?: 'opengl' | 'vulkan'
+  graphicsTrial?: 'vulkan'
   /** The backend last seen working on this computer. */
-  graphicsVerified?: 'opengl' | 'vulkan'
+  graphicsVerified?: 'vulkan'
   apiKeyEnc?: string
   /** OpenAI key for AI photos (amendment A9), encrypted like the Claude key. */
   openAiKeyEnc?: string
@@ -117,13 +117,20 @@ function writeStoredSync(s: Partial<Stored>) {
 
 /**
  * The graphics backend to start with (read before the app is ready: command-line switches must be
- * set first). OpenGL or Vulkan can leave the window black or flickering with some drivers, and a
+ * set first). Vulkan can leave the window black or flickering with some drivers, and a
  * black window gives no way back to Settings, so a backend is on trial until the window has been
  * seen drawing with it: if the app is closed or crashes before that, this start goes back to
  * Automatic and says why. `--safe-graphics` always starts with Automatic.
  */
 export function graphicsBackendForStartup(safe: boolean): { backend: NonNullable<AppSettings['graphicsBackend']>; trial: boolean } {
   const s = readStoredSync()
+  // OpenGL is no longer offered (it crashed the graphics process): a saved choice becomes Automatic
+  if ((s.graphicsBackend as string | undefined) === 'opengl' || (s.graphicsTrial as string | undefined) === 'opengl' || (s.graphicsVerified as string | undefined) === 'opengl') {
+    s.graphicsBackend = 'auto'
+    delete s.graphicsTrial
+    delete s.graphicsVerified
+    writeStoredSync(s)
+  }
   const gb = s.graphicsBackend ?? 'auto'
   if (gb === 'auto') return { backend: 'auto', trial: false }
   if (safe || s.graphicsTrial === gb) {
