@@ -35,6 +35,8 @@ export interface AppSettings {
   imageQuality?: ImageQuality
   /** ANGLE backend on Windows (amendment A6): 'auto' keeps Direct3D; the path tracer needs OpenGL or Vulkan. Applied at start-up. */
   graphicsBackend?: 'auto' | 'opengl' | 'vulkan'
+  /** A graphics backend that failed on this computer and was switched back to Automatic (shown once). */
+  graphicsFailed?: 'opengl' | 'vulkan'
   autosaveSeconds: number
   firstRunDone: boolean
 }

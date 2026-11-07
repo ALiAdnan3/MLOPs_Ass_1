@@ -236,3 +236,19 @@ What changed:
   - The material lists in the property panel are built once.
 - **Repeated work is cached:** baked sky lighting (the last 4 setups), and plant shapes built once and shared.
 - **Cylinders** (railings, furniture legs) are written straight into the mesh buffers, with identical output; a unit test checks it.
+
+## A12. A graphics setting can never leave the window black
+
+Found by a user: choosing **Settings → Graphics → OpenGL** on a computer whose driver crashes with it gave a flickering, then black window. Every later start was black too, with no way back to Settings.
+
+- **A non-default backend is on trial** until the window has been seen drawing with it. OpenGL and Vulkan are applied at start-up as before.
+  - About 8 s after start, the app captures its own window six times. If any capture is black (including a flicker), it switches back to Automatic, explains why, and restarts. Your work is autosaved.
+  - If the graphics process crashes while a chosen backend is in use, the same happens.
+  - If the app is closed or crashes before the trial ends (for example, the user closed a black window), the next start goes back to Automatic and says so once.
+- A backend seen working is remembered, and is trusted on later starts.
+- **`--safe-graphics`** on the command line always starts with Automatic.
+- The decision is taken only after the single-instance check, so opening the app a second time never changes the setting of the window already open.
+- Verified in `e2e/graphics_safety.py` (the real desktop app, throwaway profile):
+  - A stuck trial reverts.
+  - `--safe-graphics` works.
+  - A fresh OpenGL trial on the development machine was caught: the GPU process crashed, the app reverted and restarted.

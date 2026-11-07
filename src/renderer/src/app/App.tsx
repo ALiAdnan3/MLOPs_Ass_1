@@ -31,6 +31,12 @@ export function App() {
       const qt = q.get('theme') as 'light' | 'dark' | null
       useUI.getState().set({ theme: qt ?? theme, quality: qq ?? s.quality, uiMode: (q.get('ui') as typeof s.uiMode | null) ?? s.uiMode })
       configureAutosave(s.autosaveSeconds)
+      // a graphics setting that did not work was switched back at start-up: say so once
+      if (s.graphicsFailed) {
+        const name = s.graphicsFailed === 'opengl' ? 'OpenGL' : 'Vulkan'
+        useUI.getState().toast({ kind: 'info', title: `Graphics switched back to Automatic`, body: `${name} left the window black or crashed on this computer, so HomeForge AI went back to Automatic. Photoreal renders may not be available.` })
+        void platform.settings.set({ graphicsFailed: undefined })
+      }
     })
     startAutosave()
     const off = platform.onOpenFile((p) => void openRecent(p))

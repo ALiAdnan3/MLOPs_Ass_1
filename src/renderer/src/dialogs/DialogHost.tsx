@@ -134,6 +134,9 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
                     <button className="link-btn" style={{ alignSelf: 'flex-start', marginTop: 0 }} onClick={() => void platform.relaunch()}>
                       Restart to apply
                     </button>
+                    <span className="faint" style={{ fontSize: 11 }}>
+                      If the window goes black or flickers after restarting, HomeForge AI switches back to Automatic by itself.
+                    </span>
                   </div>
                 </div>
               )}

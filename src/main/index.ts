@@ -73,6 +73,7 @@ function createWindow() {
       else app.quit()
     }
   })
+  win.webContents.once('did-finish-load', () => checkGraphics())
   if (process.env['ELECTRON_RENDERER_URL']) win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   else win.loadFile(join(__dirname, '../renderer/index.html'))
   if (process.env.HF_SMOKE) {
@@ -174,16 +175,76 @@ function registerIpc() {
 }
 
 // graphics backend (amendment A6): Direct3D by default; OpenGL or Vulkan when the user chose it,
-// which the photoreal path tracer needs on Windows
-{
-  const gb = store.graphicsBackendSync()
-  if (gb === 'opengl') app.commandLine.appendSwitch('use-angle', 'gl')
-  else if (gb === 'vulkan') app.commandLine.appendSwitch('use-angle', 'vulkan')
+// which the photoreal path tracer needs on Windows. A backend is checked before it is trusted (A12).
+// decided after the single-instance check below: a second launch while the app is open must not
+// touch the setting the running window is trying
+let graphics: ReturnType<typeof store.graphicsBackendForStartup> = { backend: 'auto', trial: false }
+
+const BACKEND_NAME = { opengl: 'OpenGL', vulkan: 'Vulkan', auto: 'Automatic' } as const
+let reverting = false
+/** The chosen backend does not work here: say so, go back to Automatic and restart. */
+async function revertGraphics(why: string) {
+  if (reverting || graphics.backend === 'auto') return
+  reverting = true
+  await store.appendLog('error', `graphics backend ${graphics.backend} failed: ${why}`)
+  await store.graphicsRevert()
+  if (win && !win.isDestroyed())
+    await dialog.showMessageBox(win, {
+      type: 'warning',
+      title: 'Graphics setting switched back',
+      message: `The ${BACKEND_NAME[graphics.backend]} graphics setting does not work properly on this computer.`,
+      detail: `${why} HomeForge AI is switching back to Automatic graphics and will restart. Your work is autosaved.`,
+      buttons: ['Restart']
+    })
+  allowClose = true
+  app.relaunch({ args: process.argv.slice(1).filter((a) => a !== '--safe-graphics') })
+  app.exit(0)
 }
+
+/** A frame of the window is black when almost none of it is lit (the app always shows light text and controls). */
+function isBlack(img: Electron.NativeImage) {
+  const { width, height } = img.getSize()
+  if (!width || !height) return true
+  const px = img.toBitmap()
+  let lit = 0
+  let n = 0
+  const step = Math.max(4, Math.floor(px.length / 4 / 20000)) * 4
+  for (let i = 0; i < px.length; i += step) {
+    n++
+    if (px[i] + px[i + 1] + px[i + 2] > 120) lit++
+  }
+  return lit / Math.max(1, n) < 0.004
+}
+
+/** On trial: watch the window for a few seconds; black or flickering to black fails the backend. */
+function checkGraphics() {
+  if (!graphics.trial || !win) return
+  const w = win
+  setTimeout(async () => {
+    try {
+      for (let i = 0; i < 6; i++) {
+        if (w.isDestroyed()) return
+        if (isBlack(await w.webContents.capturePage())) return void revertGraphics('The window stayed black or flickered after the restart.')
+        await new Promise((r) => setTimeout(r, 350))
+      }
+      await store.graphicsConfirm()
+    } catch (e) {
+      await store.appendLog('warn', `graphics check skipped: ${String(e)}`)
+    }
+  }, 8000)
+}
+
+// the GPU process dying while a chosen backend is in use: that backend does not work here
+app.on('child-process-gone', (_e, details) => {
+  if (details.type === 'GPU' && details.reason !== 'clean-exit' && details.reason !== 'killed') void revertGraphics('The graphics process crashed.')
+})
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) app.quit()
 else {
+  graphics = store.graphicsBackendForStartup(process.argv.includes('--safe-graphics'))
+  if (graphics.backend === 'opengl') app.commandLine.appendSwitch('use-angle', 'gl')
+  else if (graphics.backend === 'vulkan') app.commandLine.appendSwitch('use-angle', 'vulkan')
   app.on('second-instance', (_e, argv) => {
     const f = fileArg(argv)
     if (win) {

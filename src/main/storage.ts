@@ -1,6 +1,6 @@
 import { app, safeStorage } from 'electron'
 import { promises as fs } from 'node:fs'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AppSettings, AutosaveEntry, RecentProject } from '../shared/api'
 
@@ -83,6 +83,10 @@ export async function autosaveRemove(id: string) {
 
 // ── settings & API key ──────────────────────────────────────────────────────
 interface Stored extends Omit<AppSettings, 'hasApiKey' | 'hasOpenAiKey'> {
+  /** A backend being tried: set at start-up, cleared once the window is seen drawing with it. */
+  graphicsTrial?: 'opengl' | 'vulkan'
+  /** The backend last seen working on this computer. */
+  graphicsVerified?: 'opengl' | 'vulkan'
   apiKeyEnc?: string
   /** OpenAI key for AI photos (amendment A9), encrypted like the Claude key. */
   openAiKeyEnc?: string
@@ -93,16 +97,66 @@ async function stored(): Promise<Stored> {
   return { ...DEFAULTS, ...(await readJson<Partial<Stored>>('settings.json', {})) }
 }
 const pub = (s: Stored): AppSettings => {
-  const { apiKeyEnc, openAiKeyEnc, ...rest } = s
+  const { apiKeyEnc, openAiKeyEnc, graphicsTrial: _t, graphicsVerified: _v, ...rest } = s
   return { ...rest, hasApiKey: !!apiKeyEnc || !!process.env.ANTHROPIC_API_KEY, hasOpenAiKey: !!openAiKeyEnc || !!process.env.OPENAI_API_KEY }
 }
-/** Read before the app is ready: command-line switches must be set before start-up. */
-export function graphicsBackendSync(): AppSettings['graphicsBackend'] {
+function readStoredSync(): Partial<Stored> {
   try {
-    return (JSON.parse(readFileSync(join(dir(), 'settings.json'), 'utf8').replace(/^\uFEFF/, '')) as Partial<Stored>).graphicsBackend ?? 'auto'
+    return JSON.parse(readFileSync(join(dir(), 'settings.json'), 'utf8').replace(/^\uFEFF/, '')) as Partial<Stored>
   } catch {
-    return 'auto'
+    return {}
   }
+}
+function writeStoredSync(s: Partial<Stored>) {
+  try {
+    writeFileSync(join(dir(), 'settings.json'), JSON.stringify(s, null, 2), 'utf8')
+  } catch {
+    /* settings stay as they were */
+  }
+}
+
+/**
+ * The graphics backend to start with (read before the app is ready: command-line switches must be
+ * set first). OpenGL or Vulkan can leave the window black or flickering with some drivers, and a
+ * black window gives no way back to Settings, so a backend is on trial until the window has been
+ * seen drawing with it: if the app is closed or crashes before that, this start goes back to
+ * Automatic and says why. `--safe-graphics` always starts with Automatic.
+ */
+export function graphicsBackendForStartup(safe: boolean): { backend: NonNullable<AppSettings['graphicsBackend']>; trial: boolean } {
+  const s = readStoredSync()
+  const gb = s.graphicsBackend ?? 'auto'
+  if (gb === 'auto') return { backend: 'auto', trial: false }
+  if (safe || s.graphicsTrial === gb) {
+    // the previous start with this backend never got as far as drawing
+    s.graphicsBackend = 'auto'
+    delete s.graphicsTrial
+    if (!safe) s.graphicsFailed = gb
+    writeStoredSync(s)
+    return { backend: 'auto', trial: false }
+  }
+  if (s.graphicsVerified === gb) return { backend: gb, trial: false }
+  s.graphicsTrial = gb
+  writeStoredSync(s)
+  return { backend: gb, trial: true }
+}
+
+/** The window was seen drawing with the backend on trial: keep it. */
+export async function graphicsConfirm() {
+  const s = await stored()
+  if (s.graphicsTrial && s.graphicsTrial === s.graphicsBackend) s.graphicsVerified = s.graphicsTrial
+  delete s.graphicsTrial
+  await writeJson('settings.json', s)
+}
+
+/** The backend in use failed: go back to Automatic (applies at the next start). */
+export async function graphicsRevert() {
+  const s = await stored()
+  const gb = s.graphicsBackend
+  if (gb && gb !== 'auto') s.graphicsFailed = gb
+  if (s.graphicsVerified === gb) delete s.graphicsVerified
+  s.graphicsBackend = 'auto'
+  delete s.graphicsTrial
+  await writeJson('settings.json', s)
 }
 
 export async function settingsGet() {
