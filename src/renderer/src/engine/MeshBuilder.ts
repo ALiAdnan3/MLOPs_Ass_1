@@ -161,6 +161,99 @@ export class MeshBuilder {
   }
 
   /**
+   * Box with rounded edges and corners (radius r, `seg` steps per quarter round) and smooth normals:
+   * upholstery, mattresses, cushions, and a slight softening of hard furniture, whose sharp edges
+   * caught no light and read as untextured blocks. Same frame as box(); UVs in world metres.
+   */
+  roundedBox(cx: number, cy: number, cz: number, w: number, h: number, d: number, rotY = 0, r = 0.02, seg = 3, faces: { bottom?: boolean } = {}) {
+    r = Math.min(r, w / 2 - 1e-4, h / 2 - 1e-4, d / 2 - 1e-4)
+    if (r <= 5e-4) return this.box(cx, cy, cz, w, h, d, rotY, faces)
+    const c = Math.cos(rotY)
+    const s = Math.sin(rotY)
+    const half = [w / 2, h / 2, d / 2]
+    const axis = (hh: number) => {
+      const a: number[] = []
+      for (let k = 0; k <= seg; k++) a.push(-hh + r - r * Math.cos((k / seg) * Math.PI * 0.5))
+      for (let k = seg; k >= 0; k--) a.push(hh - r + r * Math.cos((k / seg) * Math.PI * 0.5))
+      return a
+    }
+    const coords = half.map(axis)
+    const p = this.cur
+    let tris = 0
+    for (let A = 0; A < 3; A++) {
+      for (const sign of [1, -1]) {
+        if (A === 1 && sign === -1 && faces.bottom === false) continue
+        const U = (A + 1) % 3
+        const V = (A + 2) % 3
+        const uc = coords[U]
+        const vc = coords[V]
+        const base = p.pos.length / 3
+        // world-space face normal decides the UV mapping (as boxUV does)
+        const fn = [0, 0, 0]
+        fn[A] = sign
+        const fwx = fn[0] * c + fn[2] * s
+        const fwz = -fn[0] * s + fn[2] * c
+        const fy = fn[1]
+        const q = [0, 0, 0]
+        for (let i = 0; i < uc.length; i++) {
+          for (let j = 0; j < vc.length; j++) {
+            q[A] = sign * half[A]
+            q[U] = uc[i]
+            q[V] = vc[j]
+            let nx = 0
+            let ny = 0
+            let nz = 0
+            const inner = [0, 0, 0]
+            for (let k = 0; k < 3; k++) inner[k] = Math.max(-(half[k] - r), Math.min(half[k] - r, q[k]))
+            nx = q[0] - inner[0]
+            ny = q[1] - inner[1]
+            nz = q[2] - inner[2]
+            const l = Math.hypot(nx, ny, nz)
+            if (l < 1e-9) {
+              nx = fn[0]
+              ny = fn[1]
+              nz = fn[2]
+            } else {
+              nx /= l
+              ny /= l
+              nz /= l
+            }
+            const lx = inner[0] + nx * r
+            const ly = inner[1] + ny * r
+            const lz = inner[2] + nz * r
+            const wx = cx + lx * c + lz * s
+            const wy = cy + ly
+            const wz = cz - lx * s + lz * c
+            p.pos.push(wx, wy, wz)
+            p.nor.push(nx * c + nz * s, ny, -nx * s + nz * c)
+            const ax = Math.abs(fwx)
+            const ay = Math.abs(fy)
+            const az = Math.abs(fwz)
+            if (ay >= ax && ay >= az) p.uv.push(wx, -wz)
+            else if (ax >= az) p.uv.push(wz * Math.sign(fwx || 1), wy)
+            else p.uv.push(wx * -Math.sign(fwz || 1), wy)
+          }
+        }
+        // winding: counter-clockwise seen from outside
+        const n = vc.length
+        const flip = sign < 0
+        for (let i = 0; i < uc.length - 1; i++) {
+          for (let j = 0; j < n - 1; j++) {
+            const a = base + i * n + j
+            const b = base + (i + 1) * n + j
+            const cc = base + (i + 1) * n + j + 1
+            const dd = base + i * n + j + 1
+            if (flip) p.idx.push(a, dd, cc, a, cc, b)
+            else p.idx.push(a, b, cc, a, cc, dd)
+            tris += 2
+          }
+        }
+      }
+    }
+    this.mark(tris)
+  }
+
+  /**
    * Cylinder (or cone) along Y. Written straight into the buffers with a shared sine/cosine table:
    * railings and furniture legs use hundreds of these, and building them face by face with fresh
    * arrays was the largest part of building a floor. Same vertices, normals, UVs and triangles.

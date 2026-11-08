@@ -700,6 +700,8 @@ export type LayerKey =
   | 'lighting'
   | 'materials'
   | 'annotations'
+  /** The neighbouring houses around the plot in 3D views (on unless switched off). */
+  | 'context'
 
 export interface LightingSettings {
   preset: 'morning' | 'noon' | 'afternoon' | 'sunset' | 'night' | 'custom'

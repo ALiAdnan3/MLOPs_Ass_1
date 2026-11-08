@@ -47,7 +47,8 @@ const LAYER_ROWS: { k: LayerKey; label: string }[] = [
   { k: 'landscape', label: 'Landscape' },
   { k: 'lighting', label: 'Lighting' },
   { k: 'materials', label: 'Material colours' },
-  { k: 'annotations', label: 'Labels and notes' }
+  { k: 'annotations', label: 'Labels and notes' },
+  { k: 'context', label: 'Neighbourhood' }
 ]
 
 function SideSection(props: { id: string; title: string; children: React.ReactNode; defaultOpen?: boolean }) {

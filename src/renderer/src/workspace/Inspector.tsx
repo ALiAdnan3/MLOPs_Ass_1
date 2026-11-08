@@ -652,7 +652,8 @@ const LAYERS: { k: LayerKey; label: string; d: string }[] = [
   { k: 'landscape', label: 'Landscape', d: 'Lawns, trees, pool, driveway' },
   { k: 'lighting', label: 'Lighting', d: 'Light fixtures and coverage' },
   { k: 'materials', label: 'Materials', d: 'Colour rooms by floor finish' },
-  { k: 'annotations', label: 'Annotations', d: 'Labels, dimensions and notes' }
+  { k: 'annotations', label: 'Annotations', d: 'Labels, dimensions and notes' },
+  { k: 'context', label: 'Neighbourhood', d: 'Neighbouring houses around the plot in 3D' }
 ]
 
 function Layers() {

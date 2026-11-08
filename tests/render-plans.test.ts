@@ -55,7 +55,7 @@ it('renders generated plans to SVG', () => {
     const pb = bbox(d.house.plot.polygon)
     for (const f of d.house.floors) {
       const svg = new SvgContext(40, 0.02)
-      drawPlan(svg, d.house, f, { theme: LIGHT_PLAN, layers: { architecture: true, structure: true, furniture: true, electrical: false, plumbing: false, landscape: true, lighting: false, materials: false, annotations: true }, units: 'ft-in' })
+      drawPlan(svg, d.house, f, { theme: LIGHT_PLAN, layers: { architecture: true, structure: true, furniture: true, electrical: false, plumbing: false, landscape: true, lighting: false, materials: false, annotations: true, context: true }, units: 'ft-in' })
       const view = { x: pb.x - 2, y: pb.y - 2, w: pb.w + 4, h: pb.h + 12 }
       writeFileSync(`test-results/plans/${name}-${f.name}.svg`, svg.toString(view, '#ffffff', 900))
     }

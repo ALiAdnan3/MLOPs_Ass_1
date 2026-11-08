@@ -233,7 +233,8 @@ export function defaultSettings(): ProjectSettings {
       landscape: true,
       lighting: false,
       materials: false,
-      annotations: true
+      annotations: true,
+      context: true
     },
     wallThickness: { exterior: 0.23, interior: 0.115 },
     floorHeight: ft(11),

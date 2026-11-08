@@ -29,11 +29,19 @@ export function buildItem(mb: MeshBuilder, glassMb: MeshBuilder, mats: MaterialM
   const cs = Math.cos(f.rotation)
   const sn = Math.sin(f.rotation)
   const surf: SurfaceRef = { kind: 'furniture', floorId, furnitureId: f.id }
-  /** Box in local coords: center (x, y, z), size (w, h, d). */
+  /** Box in local coords: center (x, y, z), size (w, h, d), with a slight bevel that catches the light. */
   const B = (x: number, y: number, z: number, w: number, h: number, d: number) => {
     const wx = f.position.x + x * cs - z * sn
     const wz = f.position.y + x * sn + z * cs
-    mb.box(wx, E + y, wz, w, h, d, rot)
+    const r = Math.min(0.006, Math.min(w, h, d) * 0.2)
+    if (r < 0.0015) mb.box(wx, E + y, wz, w, h, d, rot)
+    else mb.roundedBox(wx, E + y, wz, w, h, d, rot, r, 1)
+  }
+  /** Soft, rounded box (upholstery, mattresses, cushions, pillows): radius r. */
+  const S = (x: number, y: number, z: number, w: number, h: number, d: number, r: number) => {
+    const wx = f.position.x + x * cs - z * sn
+    const wz = f.position.y + x * sn + z * cs
+    mb.roundedBox(wx, E + y, wz, w, h, d, rot, r, 3)
   }
   const G = (x: number, y: number, z: number, w: number, h: number, d: number) => {
     const wx = f.position.x + x * cs - z * sn
@@ -71,14 +79,16 @@ export function buildItem(mb: MeshBuilder, glassMb: MeshBuilder, mats: MaterialM
       mb.use(wood('lib:wood-walnut'), surf)
       B(0, 0.15, 0.02, W, 0.3, D - 0.04)
       mb.use(main('lib:fabric-grey'), surf)
-      B(0, Math.min(Hh, 1.1) / 2 + 0.1, -D / 2 + 0.05, W + 0.06, Math.min(Hh, 1.1) - 0.2, 0.1)
+      S(0, Math.min(Hh, 1.1) / 2 + 0.1, -D / 2 + 0.05, W + 0.06, Math.min(Hh, 1.1) - 0.2, 0.1, 0.045)
       mb.use(col('#f2f0ec'), surf)
-      B(0, 0.41, 0.04, W - 0.08, 0.22, D - 0.18)
+      S(0, 0.41, 0.04, W - 0.08, 0.22, D - 0.18, 0.06)
       mb.use(col('#ffffff'), surf)
       const pw = W > 1.2 ? W / 2 - 0.12 : W - 0.2
-      for (const px of W > 1.2 ? [-W / 4, W / 4] : [0]) B(px, 0.57, -D / 2 + 0.36, pw, 0.12, 0.38)
+      for (const px of W > 1.2 ? [-W / 4, W / 4] : [0]) S(px, 0.58, -D / 2 + 0.36, pw, 0.14, 0.38, 0.06)
       mb.use(col(f.color ?? '#7f8f9c'), surf)
-      B(0, 0.54, D * 0.18, W - 0.02, 0.05, D * 0.6)
+      // the duvet, with its fold turned back at the head
+      S(0, 0.535, D * 0.18, W - 0.02, 0.07, D * 0.6, 0.03)
+      S(0, 0.565, D * 0.18 - D * 0.3 + 0.12, W - 0.04, 0.06, 0.24, 0.03)
       break
     }
     case 'bunk':
@@ -114,21 +124,26 @@ export function buildItem(mb: MeshBuilder, glassMb: MeshBuilder, mats: MaterialM
     }
     case 'ottoman':
       mb.use(main('lib:fabric-leather'), surf)
-      B(0, Hh / 2, 0, W, Hh, D)
+      S(0, Hh / 2, 0, W, Hh, D, Math.min(0.06, Hh * 0.3))
       break
     case 'sofa':
     case 'armchair':
     case 'theater': {
       const fab = main(model === 'theater' ? 'lib:fabric-carpet-charcoal' : 'lib:fabric-grey')
       mb.use(fab, surf)
-      B(0, 0.21, 0.02, W, 0.26, D - 0.04)
-      B(0, 0.52, -D / 2 + 0.11, W, 0.6, 0.22)
-      B(-W / 2 + 0.08, 0.36, 0.02, 0.16, 0.36, D - 0.04)
-      B(W / 2 - 0.08, 0.36, 0.02, 0.16, 0.36, D - 0.04)
+      S(0, 0.21, 0.02, W, 0.26, D - 0.04, 0.05)
+      S(0, 0.52, -D / 2 + 0.11, W, 0.6, 0.22, 0.08)
+      S(-W / 2 + 0.08, 0.38, 0.02, 0.16, 0.4, D - 0.04, 0.07)
+      S(W / 2 - 0.08, 0.38, 0.02, 0.16, 0.4, D - 0.04, 0.07)
       mb.use(col(model === 'theater' ? '#3d2f35' : '#9fa3a6'), surf)
       const seats = model === 'theater' ? Math.max(2, Math.round(W / 0.8)) : model === 'armchair' ? 1 : Math.max(2, Math.round((W - 0.32) / 0.7))
       const sw = (W - 0.32) / seats
-      for (let i = 0; i < seats; i++) B(-W / 2 + 0.16 + sw * (i + 0.5), 0.39, 0.08, sw - 0.02, 0.1, D - 0.3)
+      for (let i = 0; i < seats; i++) {
+        const x = -W / 2 + 0.16 + sw * (i + 0.5)
+        // seat cushion, and a back cushion leaning on the back
+        S(x, 0.4, 0.08, sw - 0.02, 0.13, D - 0.3, 0.045)
+        if (model !== 'theater') S(x, 0.66, -D / 2 + 0.29, sw - 0.04, 0.42, 0.16, 0.07)
+      }
       mb.use(dark, surf)
       legs(W, D, 0.08, 0.05, 0.06)
       break
@@ -136,13 +151,16 @@ export function buildItem(mb: MeshBuilder, glassMb: MeshBuilder, mats: MaterialM
     case 'sofa-l': {
       const fab = main('lib:fabric-grey')
       mb.use(fab, surf)
-      B(0, 0.21, -D / 2 + 0.45, W, 0.26, 0.9)
-      B(W / 2 - 0.45, 0.21, 0.45, 0.9, 0.26, D - 0.9)
-      B(0, 0.52, -D / 2 + 0.11, W, 0.6, 0.22)
-      B(-W / 2 + 0.08, 0.36, -D / 2 + 0.45, 0.16, 0.36, 0.9)
+      S(0, 0.21, -D / 2 + 0.45, W, 0.26, 0.9, 0.05)
+      S(W / 2 - 0.45, 0.21, 0.45, 0.9, 0.26, D - 0.9, 0.05)
+      S(0, 0.52, -D / 2 + 0.11, W, 0.6, 0.22, 0.08)
+      S(-W / 2 + 0.08, 0.38, -D / 2 + 0.45, 0.16, 0.4, 0.9, 0.07)
       mb.use(col('#9fa3a6'), surf)
-      B(-0.25, 0.39, -D / 2 + 0.5, W - 1.2, 0.1, 0.6)
-      B(W / 2 - 0.45, 0.39, 0.45, 0.8, 0.1, D - 1.1)
+      S(-0.25, 0.4, -D / 2 + 0.5, W - 1.2, 0.13, 0.6, 0.045)
+      S(W / 2 - 0.45, 0.4, 0.45, 0.8, 0.13, D - 1.1, 0.045)
+      const backs = Math.max(2, Math.round((W - 0.2) / 0.75))
+      const bw = (W - 0.2) / backs
+      for (let i = 0; i < backs; i++) S(-W / 2 + 0.16 + bw * (i + 0.5), 0.66, -D / 2 + 0.29, bw - 0.04, 0.42, 0.16, 0.07)
       break
     }
     case 'dining': {
@@ -154,9 +172,9 @@ export function buildItem(mb: MeshBuilder, glassMb: MeshBuilder, mats: MaterialM
       const chairsAlong = Math.max(1, Math.round(tw / 0.6))
       const chair = (x: number, z: number, face: number) => {
         mb.use(col('#cbbba4'), surf)
-        B(x, 0.46, z, 0.44, 0.06, 0.44)
+        S(x, 0.465, z, 0.44, 0.07, 0.44, 0.025)
         const bz = z + face * 0.2
-        B(x, 0.72, bz, 0.44, 0.5, 0.05)
+        S(x, 0.72, bz, 0.44, 0.5, 0.05, 0.02)
         mb.use(wood('lib:wood-walnut'), surf)
         for (const [dx, dz] of [
           [-0.19, -0.19],

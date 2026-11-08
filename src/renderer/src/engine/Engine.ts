@@ -770,7 +770,7 @@ export class Engine {
     this.glowApplied = level
     this.root.traverse((o) => {
       const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[] | undefined
-      for (const m of Array.isArray(mm) ? mm : mm ? [mm] : []) if (m.userData?.windowGlow) m.emissiveIntensity = level
+      for (const m of Array.isArray(mm) ? mm : mm ? [mm] : []) if (m.userData?.windowGlow) m.emissiveIntensity = level * (m.userData.glowScale ?? 1)
     })
   }
 
@@ -1170,7 +1170,19 @@ export class Engine {
   private shadowJittered = false
 
   /** Draw the view as it is now, as a single moving-quality frame (the refinement follows). */
+  /** The neighbouring houses show in perspective views only (an elevation is of the design alone). */
+  private syncContext() {
+    const c = this.site?.build.context
+    if (!c) return
+    const want = this.active === this.camera && this.project?.settings.layers.context !== false
+    if (c.visible !== want) {
+      c.visible = want
+      this.renderer.shadowMap.needsUpdate = true
+    }
+  }
+
   renderFrame() {
+    this.syncContext()
     if (this.shadowJittered) {
       this.shadowJittered = false
       this.renderer.shadowMap.needsUpdate = true
@@ -1182,6 +1194,7 @@ export class Engine {
 
   /** One refinement sample: the camera shifted by a fraction of a pixel and the sun moved within its disc. */
   private renderSample(i: number) {
+    this.syncContext()
     const restore = this.jitterSun(i)
     this.pipeline.render(this.scene, this.active, this.frameSettings(true), i === 0 ? [0, 0] : jitterAt(i))
     restore()

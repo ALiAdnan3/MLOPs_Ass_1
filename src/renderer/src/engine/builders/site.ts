@@ -7,6 +7,7 @@ import { bbox, rectPoly } from '../../core/geometry/polygon'
 import { effectiveKind } from '../../planner/walls'
 import { floorElevations, sortedFloors } from '../../core/model/house'
 import { spec } from '../../core/constraints/rooms'
+import { buildContext } from './context'
 
 /** Site & landscape (§29): ground, road, lawns, pool, boundary wall, gates, trees, lights. */
 
@@ -14,6 +15,8 @@ export interface SiteBuild {
   group: THREE.Group
   lights: { p: THREE.Vector3; kind: 'garden' | 'lamp' | 'gate' | 'wash' | 'strip'; dir?: THREE.Vector3 }[]
   colliders: { a: Vec2; b: Vec2; r: number }[]
+  /** The neighbouring houses (hidden in elevation views). */
+  context?: THREE.Object3D
 }
 
 export function buildSite(h: HouseState, mats: MaterialManager, plinth: number): SiteBuild {
@@ -305,7 +308,12 @@ export function buildSite(h: HouseState, mats: MaterialManager, plinth: number):
   glass.traverse((o) => ((o as THREE.Mesh).isMesh ? (o.castShadow = false) : null))
   group.add(glass)
   group.add(...instancedVegetation(trees, palms, shrubs, mats))
-  return { group, lights, colliders }
+  // the house's front line: neighbours keep to it (a society's building line)
+  const groundFloor = h.floors.find((f) => f.level === 0)
+  const fronts = groundFloor?.rooms.filter((r) => !spec(r.type).outdoor).flatMap((r) => r.polygon.map((p) => p.y)) ?? []
+  const context = buildContext(plot, mats, fronts.length ? Math.max(...fronts) : undefined)
+  group.add(context)
+  return { group, lights, colliders, context }
 }
 
 function defaultAreaMat(kind: string) {

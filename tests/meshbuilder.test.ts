@@ -55,3 +55,41 @@ describe('MeshBuilder.cylinder', () => {
     })
   }
 })
+
+describe('MeshBuilder.roundedBox', () => {
+  const mat = new THREE.MeshStandardMaterial()
+  for (const rot of [0, 0.7]) {
+    it(`fills the box's bounds and faces outwards (rotation ${rot})`, () => {
+      const mb = new MeshBuilder().use(mat)
+      mb.roundedBox(1, 0.5, -2, 2, 0.8, 0.9, rot, 0.06, 3)
+      const ref = new MeshBuilder().use(mat)
+      ref.box(1, 0.5, -2, 2, 0.8, 0.9, rot)
+      const g = (mb.build() as THREE.Group).children[0] as THREE.Mesh
+      const r = (ref.build() as THREE.Group).children[0] as THREE.Mesh
+      g.geometry.computeBoundingBox()
+      r.geometry.computeBoundingBox()
+      const a = g.geometry.boundingBox!
+      const b = r.geometry.boundingBox!
+      if (rot === 0) {
+        for (const k of ['x', 'y', 'z'] as const) {
+          expect(a.min[k]).toBeCloseTo(b.min[k], 5)
+          expect(a.max[k]).toBeCloseTo(b.max[k], 5)
+        }
+      } else expect(a.min.y).toBeCloseTo(b.min.y, 5)
+      // every triangle's winding agrees with its vertex normals (no inside-out faces)
+      const P = g.geometry.attributes.position
+      const N = g.geometry.attributes.normal
+      const I = g.geometry.index!
+      const v = (i: number) => new THREE.Vector3().fromBufferAttribute(P, i)
+      let bad = 0
+      for (let t = 0; t < I.count / 3; t++) {
+        const [i0, i1, i2] = [I.getX(3 * t), I.getX(3 * t + 1), I.getX(3 * t + 2)]
+        const cr = v(i1).sub(v(i0)).cross(v(i2).sub(v(i0)))
+        if (cr.lengthSq() < 1e-14) continue
+        const n = new THREE.Vector3().fromBufferAttribute(N, i0).add(new THREE.Vector3().fromBufferAttribute(N, i1)).add(new THREE.Vector3().fromBufferAttribute(N, i2))
+        if (cr.dot(n) < 0) bad++
+      }
+      expect(bad).toBe(0)
+    })
+  }
+})
