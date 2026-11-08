@@ -253,3 +253,37 @@ Found by a user: choosing **Settings → Graphics → OpenGL** on a computer who
   - `--safe-graphics` works.
   - A fresh OpenGL trial on the development machine was caught: the GPU process crashed, the app reverted and restarted.
 - **OpenGL removed.** It crashed the graphics process on users' drivers. Settings → Graphics now offers Automatic (Direct3D, recommended) and Vulkan. A saved OpenGL choice starts as Automatic. Photoreal renders, which need a non-Direct3D backend, now offer Vulkan, still under the safety net above.
+
+## A13. Professional visualization, a real street, plumbing-aware generation
+
+Requested 2026-11-08: a production-grade upgrade with visualization first. The new Low preset must look at least as good as the old Ultra while staying smooth. The full working log, with measurements, is in `docs/PROGRESS.md`. The previous version is kept as git tag `v1.0-before-pro` and in `D:\HomeForge_backups\v1.0-before-pro\`.
+
+**3D rendering.** A new pipeline renders the scene in HDR with depth, then adds ambient occlusion, accumulation, bloom, tone mapping and FXAA.
+- **Still views refine.** Each frame shifts the camera by a fraction of a pixel and moves the sun within its disc. The frames are averaged into supersampled edges, soft area-light shadows and clean ambient shading. Frames per still view: Low 16, Medium 32, High 64, Ultra 128. Pictures are made the same way.
+- **The old Ultra's ambient occlusion was broken.** Its own normal pass skipped double-sided faces and blotched roofs and walls. It now reads the main render's depth.
+- **Interiors use a light probe.** It captures the room around the camera, which gives bounce light and makes polished floors reflect the room. Interiors also get a photographer's exposure.
+- **Smoothness:**
+  - The 4096 px sun shadow map is redrawn only when the scene or sun changes, not on every camera move.
+  - Only one refinement frame is in flight at a time, so moving the camera never waits.
+  - Textures arriving at full size blend into a refining picture instead of restarting it.
+- **Measured** (fixed test house, production build): Low and Medium orbit at 59 fps, as before. Ultra improved from 30 to about 50 fps.
+- A background picture could restore an older copy of the house into the 3D view. Views now re-show their current state.
+
+**Realism:**
+- Upholstery, mattresses, pillows and cushions are soft, rounded shapes; sofas have seat and back cushions. All furniture edges are bevelled.
+- The house stands in a street:
+  - Neighbours on both sides and behind, built the local way: flat roofs, parapets, water tanks, boundary walls and gates.
+  - They keep to the house's building line, and some windows glow at night.
+  - Switch them off with the **Neighbourhood** layer. Elevation views never show them.
+
+**2D plans.** Sofas, armchairs, beds and dining chairs are drawn as presentation symbols: cushions, pillows, a duvet with its fold, chair backs. These appear in exports too. Room labels on rendered plans have a backing so they read on dark stone.
+
+**Design generation.**
+- Upper floors are planned knowing the floor below. Bathrooms and kitchens stack over bathrooms and kitchens rather than over bedrooms (shorter drains, no leaks over beds), without giving up daylight.
+- On an 18-design benchmark (`tests/generator-quality.test.ts`):
+  - Stacked wet area: 20% → 27%.
+  - Wet area over bedrooms and lounges: 16.5 → 13.3 m².
+  - Light score: 67 → 68.6.
+  - Validation errors: still none.
+
+**3D view status.** "Preparing 3D view…" shows until the first frame. A pill at the bottom right shows refinement progress and opens the quality presets, with what each one does.

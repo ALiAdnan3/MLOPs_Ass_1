@@ -30,8 +30,8 @@ To go back: `git checkout v1.0-before-pro`, or install the saved setup exe.
 | P2 | Material and geometry realism: texture maps, glass, wall and trim detail | Done (furniture, neighbourhood context) |
 | P3 | 2D plan visualization: presentation-grade plan drawing | Done (symbols, labels) |
 | P4 | AI generator: plumbing stacking across floors, measured on a fixed benchmark | Done (first pass) |
-| P5 | UI/UX polish across the screens | Planned |
-| P6 | Verify (unit, e2e, benchmarks), build the installer, commit and push | Planned |
+| P5 | UI/UX polish across the screens | Partly done (3D status and quality chooser); more listed below |
+| P6 | Verify (unit, e2e, benchmarks), build the installer, commit and push | Done for this round |
 
 ## Baseline (old presets, before P1)
 
@@ -112,3 +112,28 @@ All presets use soft PCF and anisotropy 16. Ultra at 2048 px textures took 20+ s
   - Doubling the plumbing weights: stacking reached 37% but light fell to 63.
 
 **Test note:** a full `vitest run` occasionally fails all files at start-up with no message when the machine is busy; a rerun passes.
+
+### 2026-11-09: P5, P6
+- 3D status: "Preparing 3D view…", refinement progress ring, and a quality chooser with descriptions (`engine/RenderStatus.tsx`).
+- Verified:
+  - Unit tests 53/53. The dashboard e2e (42/42) and showcase e2e (18/18) pass on the dev server and the production build.
+  - Desktop graphics safety 6/6 (the first run after a build can fail two checks on cold-start timing; rerun).
+- Installer rebuilt: `release/HomeForge-AI-Setup-1.0.0.exe`.
+
+## Next (not done yet)
+- **P1:** one remaining hitch (about 0.5 s) at the start of an orbit on High and Ultra; screen-space reflections for High and Ultra.
+- **P2:**
+  - Ground: large-scale variation in the grass, or a horizon treatment.
+  - Better trees.
+  - Skirting and cornices in rooms.
+  - Window and door frame detail.
+- **P3:** dimension chains on rendered plans; wall shadows on presentation plans.
+- **P4:**
+  - Requirement parsing of more complex briefs.
+  - Furnishability checks (bed and wardrobe clearances).
+  - Cross-ventilation.
+- **P5:**
+  - A consistent visual pass over Dashboard, Wizard and Designs.
+  - Onboarding hints.
+  - A shortcut list.
+  - Empty states.
