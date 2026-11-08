@@ -550,7 +550,9 @@ function Viewer({ project, views, index, lightOf, styling, onIndex, onClose }: {
     const e = getEngine()
     e.mount(el)
     e.setController(null)
-    e.update(lit(project, light, v.kind === 'interior'), { floorId: v.floorId ?? sortedFloors(project.floors).find((f) => f.level === 0)!.id, showAll: true, viewMode: 'realistic', explodeGap: 0, doorsOpen: true, showFurniture: true, showStructure: true })
+    const sync = () => e.update(lit(project, light, v.kind === 'interior'), { floorId: v.floorId ?? sortedFloors(project.floors).find((f) => f.level === 0)!.id, showAll: true, viewMode: 'realistic', explodeGap: 0, doorsOpen: true, showFurniture: true, showStructure: true })
+    sync()
+    e.viewSync = sync
     e.camera.fov = v.pose.fov
     e.camera.updateProjectionMatrix()
     e.flyTo(new THREE.Vector3(...v.pose.position), new THREE.Vector3(...v.pose.target), 0)
@@ -559,6 +561,7 @@ function Viewer({ project, views, index, lightOf, styling, onIndex, onClose }: {
       e.camera.fov = 50
       e.camera.updateProjectionMatrix()
       e.controls.maxPolarAngle = Math.PI * 0.495
+      if (e.viewSync === sync) e.viewSync = null
       e.unmount(el)
     }
   }, [tab, v.key, light]) // eslint-disable-line react-hooks/exhaustive-deps

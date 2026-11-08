@@ -1,6 +1,7 @@
 """Dashboard (home screen) functional check: every control on the reference-v2 dashboard.
 Run against `npm run web` (port 5199): python e2e/dashboard.py
 """
+import os
 import sys
 from playwright.sync_api import sync_playwright
 
@@ -30,7 +31,7 @@ with sync_playwright() as p:
     errs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
     pg.on("console", lambda m: m.type == "error" and errs.append(m.text))
-    pg.goto("http://localhost:5199/?e2e&quality=medium")
+    pg.goto(os.environ.get("E2E_URL", "http://localhost:5199/") + "?e2e&quality=medium")
     pg.wait_for_load_state("networkidle")
     pg.wait_for_timeout(2000)
 

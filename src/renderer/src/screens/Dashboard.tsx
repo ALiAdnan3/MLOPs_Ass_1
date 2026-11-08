@@ -622,6 +622,8 @@ function Hero({ project, real, onRoom }: { project: Project | null; real: boolea
   const lighting = (real ? live : (project ?? live)).settings.lighting
   const rooms = useMemo(() => (project ? project.floors.flatMap((f) => f.rooms.filter((r) => spec(r.type).walkable && !spec(r.type).outdoor && r.type !== 'garage').map((r) => ({ f, r }))) : []), [project])
 
+  const heroProject = useRef(project)
+  heroProject.current = project
   // mount the shared engine here and frame the camera for the chosen view
   useEffect(() => {
     const el = ref.current
@@ -630,6 +632,9 @@ function Hero({ project, real, onRoom }: { project: Project | null; real: boolea
     e.mount(el)
     e.setController(null)
     e.update(project, heroOptions(project))
+    // pictures drawn meanwhile put the hero's current house back (see Engine.viewSync)
+    const sync = () => e.update(heroProject.current ?? project, { ...heroOptions(heroProject.current ?? project), floorId: e.options.floorId })
+    e.viewSync = sync
     e.controls.autoRotate = false
     if (view === 'exterior') {
       if (cam === 'drone' || cam === 'street') {
@@ -682,6 +687,7 @@ function Hero({ project, real, onRoom }: { project: Project | null; real: boolea
       e.camera.fov = 50
       e.camera.updateProjectionMatrix()
       e.highlight(null, 'select')
+      if (e.viewSync === sync) e.viewSync = null
       e.unmount(el)
     }
     // the camera is framed once per house and view; edits below only refresh the scene

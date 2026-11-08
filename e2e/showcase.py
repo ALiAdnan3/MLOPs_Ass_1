@@ -2,6 +2,7 @@
 
   python e2e/showcase.py
 """
+import os
 import sys
 import time
 from playwright.sync_api import sync_playwright
@@ -20,7 +21,7 @@ with sync_playwright() as p:
     errs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
     pg.on("console", lambda m: m.type == "error" and errs.append(m.text))
-    pg.goto("http://localhost:5199/?e2e&quality=medium")
+    pg.goto(os.environ.get("E2E_URL", "http://localhost:5199/") + "?e2e&quality=medium")
     pg.wait_for_load_state("networkidle")
     pg.locator(".size-grid button", has_text="1 Kanal").click()
     pg.get_by_role("button", name="Generate possible designs").click()

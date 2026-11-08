@@ -3,13 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GradientSky } from './lighting/GradientSky'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { captureCanvas } from '../render/encode'
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
-import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
-import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js'
-import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js'
+import { RenderPipeline, jitterAt, discAt, type FrameSettings } from './render/Pipeline'
 import type { CameraBookmark, Floor, Project, Quality, SurfaceRef, Vec2 } from '../core/model/types'
 import { MaterialManager } from './materials/MaterialManager'
 import { buildFloor, hasPitchedRoof, type FloorBuild } from './builders/house'
@@ -51,12 +45,42 @@ interface FloorEntry {
   build: FloorBuild
 }
 
-const QUALITY: Record<Quality, { pixelRatio: number; shadows: number; tex: number; lights: number; post: boolean; ao: boolean; aa: boolean }> = {
-  low: { pixelRatio: 1, shadows: 0, tex: 256, lights: 4, post: false, ao: false, aa: false },
-  medium: { pixelRatio: 1, shadows: 1024, tex: 512, lights: 8, post: false, ao: false, aa: true },
-  high: { pixelRatio: 1.5, shadows: 2048, tex: 1024, lights: 8, post: true, ao: false, aa: true },
-  ultra: { pixelRatio: 2, shadows: 4096, tex: 1024, lights: 12, post: true, ao: true, aa: true }
+/**
+ * Quality presets (amendment A13). Every preset refines a still view: it keeps drawing it with
+ * sub-pixel camera shifts and the sun moved within its disc, averaging `samples` frames, which gives
+ * supersampled edges, soft shadows and clean ambient occlusion. Low's still picture is better than
+ * the old Ultra's; higher presets add resolution, sharper shadows, AO and bloom while moving, and
+ * more samples.
+ */
+interface QualitySpec {
+  /** Drawing-buffer pixels per CSS pixel (capped by the screen's own). */
+  pixelRatio: number
+  /** Sun shadow map size. */
+  shadows: number
+  /** Shadow filter radius in texels while moving (refined frames are softened by the sun's disc). */
+  shadowRadius: number
+  /** Texture size for library materials. */
+  tex: number
+  /** Night lights in the pool (shader cost grows with it). */
+  lights: number
+  /** Ambient occlusion while the view moves (a still view always gets it). */
+  aoLive: boolean
+  /** Bloom while the view moves. */
+  bloomLive: boolean
+  /** Samples averaged into a still view. */
+  samples: number
+  /** Samples per picture (cards, showcase, exports). */
+  pictureSamples: number
 }
+export const QUALITY: Record<Quality, QualitySpec> = {
+  low: { pixelRatio: 1, shadows: 2048, shadowRadius: 2.5, tex: 1024, lights: 8, aoLive: false, bloomLive: false, samples: 16, pictureSamples: 12 },
+  medium: { pixelRatio: 1.25, shadows: 2048, shadowRadius: 2.5, tex: 1024, lights: 8, aoLive: false, bloomLive: true, samples: 32, pictureSamples: 16 },
+  high: { pixelRatio: 1.5, shadows: 4096, shadowRadius: 3, tex: 1024, lights: 8, aoLive: true, bloomLive: true, samples: 64, pictureSamples: 24 },
+  ultra: { pixelRatio: 2, shadows: 4096, shadowRadius: 3, tex: 1024, lights: 12, aoLive: true, bloomLive: true, samples: 128, pictureSamples: 40 }
+}
+
+/** Angular radius of the sun's disc for soft shadows, radians (larger than the real 0.27° for a pleasing penumbra). */
+const SUN_DISC = 0.012
 
 /** How strongly the night surround lights the scene (rooms are lit mainly by their own lights). */
 const NIGHT_ENV_INTENSITY = 0.45
@@ -95,9 +119,13 @@ export class Engine {
   private raf = 0
   private timer = new THREE.Timer()
   private ro: ResizeObserver | null = null
-  private composer: EffectComposer | null = null
-  private bloom: UnrealBloomPass | null = null
-  private gtao: GTAOPass | null = null
+  private pipeline!: RenderPipeline
+  /** Bloom strength for the current time of day. */
+  private bloomStrength = 0.05
+  /** A still view has been refined to its full number of samples (tests wait for this). */
+  refined = false
+  /** When the view last changed (refinement starts once it has been still a moment). */
+  private changedAt = 0
   private highlightMesh: THREE.Mesh | null = null
   private selectMesh: THREE.Mesh | null = null
   private clip = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e6)
@@ -109,6 +137,15 @@ export class Engine {
     return this.envTex
   }
   private skyEnv: { scene: THREE.Scene; sky: GradientSky; rt: THREE.WebGLRenderTarget | null; key: string } | null = null
+  /** Bumped on every scene update (the interior probe is re-captured when the house changes). */
+  private sceneRevision = 0
+  /**
+   * The interior light probe (A13): the room around the camera, captured into a small cube map and
+   * filtered like the sky. Indoors it replaces the sky as the environment, so walls are lit by light
+   * bounced off the sunlit floor and the windows' daylight, and glossy floors reflect the room
+   * rather than the sky. Captured when the view comes to rest inside.
+   */
+  private probe: { cam: THREE.CubeCamera; rt: THREE.WebGLCubeRenderTarget; env: THREE.WebGLRenderTarget | null; key: string; active: boolean } | null = null
   private skyCache = new Map<string, THREE.WebGLRenderTarget>()
   private skyState = { warm: 0, night: 0 }
 
@@ -121,6 +158,12 @@ export class Engine {
   private explodeCurrent = 0
   onFrame: (() => void) | null = null
   contextLost = false
+  /**
+   * The mounted view's way of showing its current state (latest project, its options). Pictures
+   * rendered in between call it afterwards, so the view never goes back to a copy of the house
+   * taken before an edit made while the picture was being drawn.
+   */
+  viewSync: (() => void) | null = null
 
   constructor() {
     const canvas = document.createElement('canvas')
@@ -136,11 +179,18 @@ export class Engine {
     this.renderer.toneMappingExposure = 1.0
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFShadowMap
+    // The sun's shadow map is redrawn only when something that casts or receives shadows changes
+    // (the house, the layout, the sun, a refinement sample's sun position), not as the camera
+    // moves: at 4096 px it was ~20 ms of every frame while orbiting.
+    this.renderer.shadowMap.autoUpdate = false
+    this.renderer.shadowMap.needsUpdate = true
+    // the scene is drawn into the pipeline's HDR buffer, which needs no stencil or multisampling
     this.renderer.localClippingEnabled = true
     this.mats.clippingPlanes.push(this.clip)
-    this.mats.onUpdate = () => this.invalidate()
+    // a texture arriving changes detail, not the view: it blends into the refined picture
+    this.mats.onUpdate = () => this.refresh()
     this.mats.onTexture = (t) => this.queueUpload(t)
-    this.mats.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy())
+    this.mats.anisotropy = Math.min(16, this.renderer.capabilities.getMaxAnisotropy())
 
     canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault()
@@ -177,6 +227,7 @@ export class Engine {
     this.sun.shadow.normalBias = 0.03
     this.scene.add(this.sun, this.sun.target, this.hemi)
     this.scene.fog = new THREE.Fog('#c9d6e0', 180, 900)
+    this.pipeline = new RenderPipeline(this.renderer, this.scene, this.camera)
 
     const starGeo = new THREE.BufferGeometry()
     const pts: number[] = []
@@ -239,19 +290,33 @@ export class Engine {
     this.needs = true
   }
 
+  /**
+   * Something changed a little (a texture arrived at full size): blend it into the picture being
+   * refined instead of starting over. Textures upgrade one by one for a while after a house loads;
+   * starting over at each one kept a still view from ever finishing.
+   */
+  refresh() {
+    if (this.pipeline.samples <= 1 || this.needs) return this.invalidate()
+    // the next few samples replace most of what was averaged before
+    this.pipeline.soften(3)
+    this.refined = false
+  }
+
   setQuality(q: Quality) {
     this.quality = q
     const Q = QUALITY[q]
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Q.pixelRatio))
-    this.renderer.shadowMap.enabled = Q.shadows > 0
-    this.sun.castShadow = Q.shadows > 0
-    if (Q.shadows > 0) {
+    this.renderer.shadowMap.enabled = true
+    this.sun.castShadow = true
+    this.sun.shadow.radius = Q.shadowRadius
+    this.renderer.shadowMap.needsUpdate = true
+    if (this.sun.shadow.mapSize.x !== Q.shadows) {
       this.sun.shadow.mapSize.set(Q.shadows, Q.shadows)
       this.sun.shadow.map?.dispose()
       ;(this.sun.shadow as { map: THREE.WebGLRenderTarget | null }).map = null
     }
     this.mats.setTextureSize(Q.tex)
-    this.setupPost()
+    this.postWarm = null
     // the old builds must leave the scene too, or the house is drawn twice
     this.resetBuilds()
     this.pool = null
@@ -260,88 +325,46 @@ export class Engine {
     this.invalidate()
   }
 
-  private setupPost() {
-    this.composer?.dispose()
-    this.composer = null
-    this.bloom = null
-    this.gtao = null
-    this.fxaa = null
-    this.postWarm = null
-    const Q = QUALITY[this.quality]
-    if (!Q.post) return
-    const size = this.renderer.getSize(new THREE.Vector2())
-    // No multisampling on the passes' buffers: on ANGLE's Direct3D backend a multisampled half-float
-    // target stalled the view for ~0.5 s every second or so. Edges are smoothed by FXAA at the end
-    // instead (pictures are supersampled anyway).
-    this.composer = new EffectComposer(this.renderer)
-    this.composer.addPass(new RenderPass(this.scene, this.camera))
-    if (Q.ao) {
-      this.gtao = new GTAOPass(this.scene, this.camera, size.x, size.y)
-      this.gtao.blendIntensity = 0.8
-      this.composer.addPass(this.gtao)
-    }
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.3, 0.45, 0.92)
-    this.composer.addPass(this.bloom)
-    this.composer.addPass(new OutputPass())
-    if (Q.aa) {
-      this.fxaa = new ShaderPass(FXAAShader)
-      this.composer.addPass(this.fxaa)
-    }
-    this.sizePost(size.x, size.y)
-  }
-
-  private fxaa: ShaderPass | null = null
   private postWarm: Promise<void> | null = null
   /**
-   * The post-processing passes' shaders (bloom, output, FXAA) compiled on their first frame, ~0.6 s
-   * with the window frozen. Compile them in the background first, against the target each draws
-   * into (the last pass draws to the screen).
+   * The pipeline's shaders (AO, accumulation, bloom, tone mapping, FXAA) compiled on their first
+   * frame, ~0.6 s with the window frozen. Compile them in the background first.
    */
   private warmPost(): Promise<void> {
-    const composer = this.composer
-    if (!composer) return Promise.resolve()
     if (this.postWarm) return this.postWarm
-    const materials = new Set<THREE.Material>()
-    const prev = this.renderer.getRenderTarget()
-    const quad = new THREE.PlaneGeometry(2, 2)
-    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
-    const passes = composer.passes.filter((x) => x.enabled)
-    passes.forEach((pass, i) => {
-      // OutputPass sets its defines on its first render; set them as it would, so they stay
-      const out = pass as unknown as { _outputColorSpace?: string; _toneMapping?: number; material?: THREE.ShaderMaterial }
-      if (pass instanceof OutputPass && out.material) {
-        out._outputColorSpace = this.renderer.outputColorSpace
-        out._toneMapping = this.renderer.toneMapping
-        out.material.defines = {}
-        if (THREE.ColorManagement.getTransfer(this.renderer.outputColorSpace) === THREE.SRGBTransfer) out.material.defines.SRGB_TRANSFER = ''
-        if (this.renderer.toneMapping === THREE.ACESFilmicToneMapping) out.material.defines.ACES_FILMIC_TONE_MAPPING = ''
-        out.material.needsUpdate = true
-      }
-      const found = new Set<THREE.Material>()
-      for (const v of Object.values(pass as unknown as Record<string, unknown>)) {
-        if (v instanceof THREE.Material) found.add(v)
-        else if (Array.isArray(v)) for (const x of v) if (x instanceof THREE.Material) found.add(x)
-      }
-      this.renderer.setRenderTarget(i === passes.length - 1 ? null : composer.readBuffer)
-      for (const m of found) for (const x of this.renderer.compile(new THREE.Mesh(quad, m), cam)) materials.add(x)
-    })
-    this.renderer.setRenderTarget(prev)
-    this.postWarm = this.programsReady(materials)
+    this.postWarm = this.programsReady(new Set(this.pipeline.compileAll()))
     return this.postWarm
   }
-  /** Size the passes (FXAA works in pixels of the drawing buffer). */
+  /** Size the pipeline's buffers to the drawing buffer. */
   private sizePost(w: number, h: number) {
-    this.composer?.setSize(w, h)
-    if (this.fxaa) {
-      const pr = this.renderer.getPixelRatio()
-      ;(this.fxaa.material.uniforms.resolution.value as THREE.Vector2).set(1 / Math.max(1, w * pr), 1 / Math.max(1, h * pr))
+    const pr = this.renderer.getPixelRatio()
+    this.pipeline.setSize(w * pr, h * pr)
+    this.restart()
+  }
+
+  /** What a frame includes: a moving view gets the preset's live effects, a still one all of them. */
+  private frameSettings(still: boolean): FrameSettings {
+    const Q = QUALITY[this.quality]
+    return {
+      ao: (still || Q.aoLive) && this.options.viewMode !== 'architectural',
+      bloom: still || Q.bloomLive ? this.bloomStrength : 0,
+      fxaa: true
     }
+  }
+
+  /** The view changed: the refined picture starts over. */
+  private restart() {
+    this.pipeline.reset()
+    this.refined = false
+    this.changedAt = performance.now()
   }
 
   // ── scene sync ────────────────────────────────────────────────────────────
   update(p: Project, opts: EngineOptions) {
     this.project = p
     this.options = opts
+    this.sceneRevision++
+    this.renderer.shadowMap.needsUpdate = true
     const look = opts.viewMode === 'architectural' ? 'clay' : 'realistic'
     if (look !== this.lastLook) {
       this.mats.look = look
@@ -439,6 +462,7 @@ export class Engine {
     this.siteRoot.visible = o.viewMode !== 'floor' || true
     // dollhouse: cut walls of the active floor at 1.6 m
     const active = floors[activeIdx]
+    this.renderer.shadowMap.needsUpdate = true
     if (o.viewMode === 'dollhouse' && active) this.clip.constant = (el.get(active.id) ?? 0) + Math.min(1.7, active.height * 0.55)
     else this.clip.constant = 1e6
     this.invalidate()
@@ -467,6 +491,7 @@ export class Engine {
     this.sun.position.copy(center).addScaledVector(dir, dist)
     this.sun.target.position.copy(center)
     this.sun.target.updateMatrixWorld()
+    this.renderer.shadowMap.needsUpdate = true
     const warm = THREE.MathUtils.clamp((20 - d.altitude) / 20, 0, 1)
     this.sun.color.setHSL(0.09, 0.2 + warm * 0.6, 0.92 - warm * 0.18)
     this.sun.intensity = night >= 1 ? 0 : (1 - night) * (1.4 + Math.min(1, d.altitude / 40) * 2.4)
@@ -484,9 +509,9 @@ export class Engine {
     ;(this.stars.material as THREE.PointsMaterial).opacity = Math.max(0, night - 0.4)
     const fogColor = new THREE.Color().setHSL(0.58, 0.25, 0.8 - night * 0.72)
     ;(this.scene.fog as THREE.Fog).color = fogColor
-    this.renderer.toneMappingExposure = this.options.viewMode === 'architectural' ? 1.05 : 0.84 + night * 0.22 + dusk * 0.2
+    this.exposureBase = this.options.viewMode === 'architectural' ? 1.05 : 0.84 + night * 0.22 + dusk * 0.2
     this.updateSkyEnvironment(night)
-    if (this.bloom) this.bloom.strength = 0.04 + night * 0.32
+    this.bloomStrength = 0.04 + night * 0.32
     // emissive fixtures glow at night
     const lightsOn = L.interiorLights
     const glow = 0.15 + night * 1.1
@@ -527,7 +552,17 @@ export class Engine {
     return false
   }
 
+  private exposureBase = 1
   private updateSkyEnvironment(night: number) {
+    // interiors are exposed brighter, as a photographer would (by day the windows are far brighter
+    // than the room; the room is what the picture is about)
+    const indoors = !!(this.probe?.active && this.probe.env && this.options.viewMode !== 'architectural')
+    this.renderer.toneMappingExposure = this.exposureBase * (indoors ? 1.35 - this.night * 0.2 : 1)
+    if (indoors) {
+      this.scene.environment = this.probe!.env!.texture
+      this.scene.environmentIntensity = 1
+      return
+    }
     if (this.options.viewMode === 'architectural') {
       this.scene.environment = this.studioEnv()
       this.scene.environmentIntensity = 0.8
@@ -577,6 +612,50 @@ export class Engine {
     this.scene.environmentIntensity = 0.85 + (1 - night) * 0.35
   }
 
+  /**
+   * Capture the interior probe at the camera if it is inside a room (and the capture is out of date).
+   * Returns whether the environment changed. Outside, the sky takes over again.
+   */
+  private refreshProbe(): boolean {
+    const inside = this.options.viewMode !== 'architectural' && this.active === this.camera && this.cameraInside()
+    if (!inside) {
+      if (!this.probe?.active) return false
+      this.probe.active = false
+      this.updateSkyEnvironment(this.night)
+      return true
+    }
+    if (!this.pmremWarm) return false
+    const pos = this.camera.position
+    const key = `${Math.round(pos.x / 0.75)},${Math.round(pos.y / 0.75)},${Math.round(pos.z / 0.75)}|${this.sceneRevision}|${this.skyEnv?.key ?? ''}|${this.night.toFixed(2)}`
+    if (this.probe?.active && this.probe.key === key) return false
+    if (!this.probe) {
+      const rt = new THREE.WebGLCubeRenderTarget(128, { type: THREE.HalfFloatType })
+      this.probe = { cam: new THREE.CubeCamera(0.05, 200, rt), rt, env: null, key: '', active: false }
+    }
+    const pr = this.probe
+    // the room as lit by the sun through its windows and a share of the sky (the light that comes in)
+    pr.active = false
+    this.updateSkyEnvironment(this.night)
+    const envI = this.scene.environmentIntensity
+    this.scene.environmentIntensity = envI * 0.45
+    const helpers = this.helpers.visible
+    this.helpers.visible = false
+    const shadowPending = this.renderer.shadowMap.needsUpdate
+    this.renderer.shadowMap.needsUpdate = false
+    const prevTarget = this.renderer.getRenderTarget()
+    pr.cam.position.copy(pos)
+    pr.cam.update(this.renderer, this.scene)
+    this.renderer.setRenderTarget(prevTarget)
+    this.renderer.shadowMap.needsUpdate = shadowPending
+    this.helpers.visible = helpers
+    this.scene.environmentIntensity = envI
+    pr.env = this.pmrem().fromCubemap(pr.rt.texture, pr.env ?? undefined)
+    pr.key = key
+    pr.active = true
+    this.updateSkyEnvironment(this.night)
+    return true
+  }
+
   private pmremGen: THREE.PMREMGenerator | null = null
   private pmrem() {
     return (this.pmremGen ??= new THREE.PMREMGenerator(this.renderer))
@@ -619,6 +698,10 @@ export class Engine {
         for (const x of this.renderer.compile(bg, cube)) materials.add(x)
         if (this.skyEnv) for (const x of this.renderer.compile(this.skyEnv.scene, cube)) materials.add(x)
         rt.dispose()
+        // the interior probe's filter (a cube map in, rather than a scene)
+        const pmc = pm as unknown as { compileCubemapShader?(): void; _cubemapMaterial?: THREE.Material | null }
+        pmc.compileCubemapShader?.()
+        if (pmc._cubemapMaterial) materials.add(pmc._cubemapMaterial)
       }
     } catch {
       /* internals changed: the first bake compiles as it used to */
@@ -815,7 +898,6 @@ export class Engine {
     this.active = want
     this.controls.object = want
     this.controls.enableRotate = !on
-    if (this.composer) (this.composer.passes[0] as RenderPass).camera = want
     this.invalidate()
   }
 
@@ -1019,25 +1101,111 @@ export class Engine {
     if (this.controller?.active) {
       if (this.controller.update(dt)) dirty = true
     } else if (this.interacting > 0 || this.flight) {
-      this.controls.update()
-      dirty = true
+      // damping keeps the camera gliding a moment after release; only real movement redraws
+      if (this.controls.update() || this.flight) dirty = true
     }
-    if (!dirty) return
+    const refining = !dirty && !this.refined
+    if (!dirty && !refining) return
     // new shaders compile in the background first; the last frame stays up meanwhile
     if (this.programsDirty || this.compiling || !this.compiledFor.has(this.renderPath())) {
       void this.ready()
       return
     }
-    this.needs = false
-    // walking in or out of the house at night swaps interior lights on/off
-    if (this.night > 0.25 && ++this.insideCheck % 15 === 0 && this.cameraInside() !== this.lastInside) this.placeNightLights(this.night)
-    this.renderFrame()
+    if (dirty) {
+      this.needs = false
+      this.restart()
+      // walking in or out of the house at night swaps interior lights on/off
+      if (++this.insideCheck % 15 === 0 && this.cameraInside() !== this.lastInside) {
+        if (this.night > 0.25) this.placeNightLights(this.night)
+        else this.lastInside = !this.lastInside
+        // stepping out: the sky lights the view again at once (stepping in waits for the capture)
+        if (!this.lastInside && this.probe?.active) {
+          this.probe.active = false
+          this.updateSkyEnvironment(this.night)
+        }
+      }
+      this.renderFrame()
+      this.onFrame?.()
+      return
+    }
+    // still: once it has been still a moment, add samples until the picture is complete
+    if (performance.now() - this.changedAt < 140) return
+    // one sample in flight at a time: queuing samples faster than the GPU drew them made the next
+    // camera move wait for the whole backlog (up to a second)
+    if (!this.gpuIdle()) return
+    const n = this.pipeline.samples
+    // the first still sample replaces the moving frame (it adds AO and bloom on the lower presets)
+    if (n === 1 && !this.stillStarted) {
+      this.stillStarted = true
+      this.refreshProbe()
+      this.pipeline.reset()
+    }
+    this.renderSample(this.pipeline.samples)
+    this.fenceGpu()
+    if (this.pipeline.samples >= QUALITY[this.quality].samples) {
+      this.refined = true
+      this.stillStarted = false
+    }
     this.onFrame?.()
   }
+  private stillStarted = false
+  private fence: WebGLSync | null = null
+  /** Mark the end of the work just issued; gpuIdle() says when the GPU has done it. */
+  private fenceGpu() {
+    const gl = this.renderer.getContext() as WebGL2RenderingContext
+    if (!gl.fenceSync) return
+    if (this.fence) gl.deleteSync(this.fence)
+    this.fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)
+    gl.flush()
+  }
+  private gpuIdle() {
+    if (!this.fence) return true
+    const gl = this.renderer.getContext() as WebGL2RenderingContext
+    if (gl.getSyncParameter(this.fence, gl.SYNC_STATUS) !== gl.SIGNALED) return false
+    gl.deleteSync(this.fence)
+    this.fence = null
+    return true
+  }
+  /** The shadow map was last drawn with the sun moved within its disc (redraw it exactly for moving frames). */
+  private shadowJittered = false
 
+  /** Draw the view as it is now, as a single moving-quality frame (the refinement follows). */
   renderFrame() {
-    if (this.usesComposer()) this.composer!.render()
-    else this.renderer.render(this.scene, this.active)
+    if (this.shadowJittered) {
+      this.shadowJittered = false
+      this.renderer.shadowMap.needsUpdate = true
+    }
+    this.pipeline.reset()
+    this.stillStarted = false
+    this.pipeline.render(this.scene, this.active, this.frameSettings(false))
+  }
+
+  /** One refinement sample: the camera shifted by a fraction of a pixel and the sun moved within its disc. */
+  private renderSample(i: number) {
+    const restore = this.jitterSun(i)
+    this.pipeline.render(this.scene, this.active, this.frameSettings(true), i === 0 ? [0, 0] : jitterAt(i))
+    restore()
+  }
+
+  /** Move the sun to a point of its disc for sample i (soft, area-light shadows); returns the undo. */
+  private jitterSun(i: number) {
+    if (i === 0 || !this.sun.visible) return () => {}
+    const pos = this.sun.position.clone()
+    const t = this.sun.target.position
+    const d = pos.clone().sub(t)
+    const len = d.length()
+    const u = new THREE.Vector3(0, 1, 0).cross(d).normalize()
+    if (u.lengthSq() < 1e-6) u.set(1, 0, 0)
+    const v = d.clone().cross(u).normalize()
+    const [a, b] = discAt(i)
+    this.shadowJittered = true
+    this.renderer.shadowMap.needsUpdate = true
+    this.sun.position.addScaledVector(u, a * SUN_DISC * len).addScaledVector(v, b * SUN_DISC * len)
+    this.sun.updateMatrixWorld()
+    return () => {
+      this.sun.position.copy(pos)
+      this.sun.updateMatrixWorld()
+    }
   }
 
   /**
@@ -1045,7 +1213,7 @@ export class Engine {
    * the camera all happen before this returns; only the encoding is asynchronous, so nothing that
    * moves the camera in the meantime (orbit spin, the user) is undone afterwards.
    */
-  snapshot(opts: { width?: number; height?: number; type?: 'image/png' | 'image/jpeg'; quality?: number; pose?: { position: THREE.Vector3; target: THREE.Vector3; fov?: number }; supersample?: number } = {}): Promise<Blob> {
+  snapshot(opts: { width?: number; height?: number; type?: 'image/png' | 'image/jpeg'; quality?: number; pose?: { position: THREE.Vector3; target: THREE.Vector3; fov?: number }; supersample?: number; samples?: number } = {}): Promise<Blob> {
     const size = this.renderer.getSize(new THREE.Vector2())
     const w = opts.width ?? size.x
     const h = opts.height ?? size.y
@@ -1075,7 +1243,7 @@ export class Engine {
       this.camera.setViewOffset(cw, ch, -ox, -oy, buf.x, buf.y)
       this.camera.updateProjectionMatrix()
       if (opts.pose) this.placeNightLights(this.night)
-      this.renderFrame()
+      this.renderPicture(opts.samples)
       const blob = captureCanvas(this.canvas, w, h, opts.type ?? 'image/png', opts.quality ?? 0.92, { x: ox, y: oy, width: cw, height: ch })
       this.camera.clearViewOffset()
       this.camera.position.copy(prevPos)
@@ -1099,7 +1267,7 @@ export class Engine {
     this.camera.updateProjectionMatrix()
     this.sizePost(W, H)
     if (opts.pose) this.placeNightLights(this.night)
-    this.renderFrame()
+    this.renderPicture(opts.samples)
     // the frame is taken now; scaling down and encoding happen off the main thread
     const blob = captureCanvas(this.canvas, w, h, opts.type ?? 'image/png', opts.quality ?? 0.92)
     this.camera.position.copy(prevPos)
@@ -1113,6 +1281,15 @@ export class Engine {
     if (opts.pose) this.placeNightLights(this.night)
     this.invalidate()
     return blob
+  }
+
+  /** A finished picture: the preset's number of refinement samples, drawn at once. */
+  private renderPicture(samples = QUALITY[this.quality].pictureSamples) {
+    this.refreshProbe()
+    this.pipeline.reset()
+    const n = Math.max(1, samples)
+    for (let i = 0; i < n; i++) this.renderSample(i)
+    this.refined = false
   }
 
   // ── texture uploads ───────────────────────────────────────────────────────
@@ -1176,18 +1353,12 @@ export class Engine {
   private compiledFor = new Set<string>()
 
   /** Whether the next frame goes through the post-processing passes or straight to the screen. */
-  private usesComposer() {
-    // always through the passes when there are any: one set of shaders to compile, and day and
-    // night look alike in tone (bloom is all but off by day)
-    return !!this.composer && this.active === this.camera
-  }
   /**
-   * Shaders differ by path: drawn to the screen they include tone mapping and sRGB output, drawn
-   * into the post-processing buffer they do not. Compiling for the wrong path left the real ones to
-   * compile on the main thread at first draw.
+   * Shaders differ by the target they draw into (to the screen they would include tone mapping and
+   * sRGB output). Everything is drawn into the pipeline's HDR buffer now, so there is one path.
    */
   private renderPath() {
-    return this.usesComposer() ? 'post' : 'screen'
+    return 'post'
   }
   /**
    * Compile the shaders for everything in the scene in the background (KHR_parallel_shader_compile)
@@ -1209,14 +1380,14 @@ export class Engine {
     const compileAll = async () => {
       for (const part of parts) {
         const prevTarget = this.renderer.getRenderTarget()
-        if (path === 'post' && this.composer) this.renderer.setRenderTarget(this.composer.readBuffer)
+        this.renderer.setRenderTarget(this.pipeline.sceneRT)
         const materials = this.renderer.compile(part, this.active, this.scene)
         this.renderer.setRenderTarget(prevTarget)
         await this.programsReady(materials)
         await new Promise((r) => setTimeout(r, 16))
       }
     }
-    const job: Promise<void> = Promise.all([compileAll(), this.pmremWarming ?? Promise.resolve(), path === 'post' ? this.warmPost() : Promise.resolve()])
+    const job: Promise<void> = Promise.all([compileAll(), this.pmremWarming ?? Promise.resolve(), this.warmPost()])
       .then(
         () => undefined,
         () => undefined
@@ -1235,13 +1406,14 @@ export class Engine {
    * of them every 10 ms, which cost seconds of main-thread time while a house loaded.
    */
   private programsReady(materials: Set<THREE.Material>): Promise<void> {
-    const props = this.renderer.properties as unknown as { get(m: THREE.Material): { currentProgram?: { isReady(): boolean } } }
+    const props = this.renderer.properties as unknown as { get(m: THREE.Material): { currentProgram?: { isReady(): boolean; program?: WebGLProgram } } }
     const list = [...materials]
     return new Promise((resolve) => {
       const tick = () => {
         while (list.length) {
           const prog = props.get(list[0]).currentProgram
-          if (prog && !prog.isReady()) {
+          // a program replaced meanwhile (its material changed) is gone: nothing to wait for
+          if (prog && prog.program && !prog.isReady()) {
             setTimeout(tick, 30)
             return
           }
@@ -1272,6 +1444,7 @@ export class Engine {
     this.ro?.disconnect()
     this.controls.dispose()
     this.mats.dispose()
+    this.pipeline.dispose()
     this.renderer.dispose()
   }
 

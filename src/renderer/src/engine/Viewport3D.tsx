@@ -58,6 +58,7 @@ export function Viewport3D() {
       })
     }
     sync()
+    engine.viewSync = sync
     engine.setCameraPreset('orbit', undefined, false)
     // Edits arrive at pointer rate while dragging in the plan, and rebuilding a large floor takes
     // 0.1-0.3 s, so rebuilding during the drag made it stutter. Rebuild once changes pause (0.12 s),
@@ -100,6 +101,7 @@ export function Viewport3D() {
       b()
       shown.disconnect()
       clearTimeout(timer)
+      if (engine.viewSync === sync) engine.viewSync = null
       engine.setController(null)
       engine.unmount(el)
     }

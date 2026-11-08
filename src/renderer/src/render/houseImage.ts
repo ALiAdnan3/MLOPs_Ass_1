@@ -71,8 +71,9 @@ export function renderHouseImage(p: Project, opts: HouseImageOptions = { width: 
       const shot = e.snapshot({ width: opts.width, height: opts.height, type: opts.type ?? 'image/jpeg', quality: 0.92, pose: { position: pos, target, fov } })
       // put back what was on show before anything else can draw. With nothing on screen there is
       // nothing to put back: whichever view mounts next sets its own house.
-      if (prev && e.container) {
-        e.update(prev, prevOpts)
+      if (e.container && (e.viewSync || prev)) {
+        if (e.viewSync) e.viewSync()
+        else e.update(prev!, prevOpts)
         // the capture resized (and so cleared) the shared canvas: redraw the view now, or it stays
         // blank while the next queued render waits for its textures
         e.renderFrame()
