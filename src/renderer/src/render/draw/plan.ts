@@ -469,6 +469,39 @@ const RENDER_FILL: Record<string, string> = {
   circle: '#c7ccd1',
   solar: '#1f3550'
 }
+/**
+ * Rounded rectangle in the item's frame (upholstery, cushions, pillows). Corners are arcs of
+ * radius r, 5 steps each, so every backend (canvas, SVG, PDF, DXF) draws them as polygons.
+ */
+function roundL(f: FurnitureItem, x0: number, y0: number, x1: number, y1: number, r: number) {
+  r = Math.max(0, Math.min(r, (x1 - x0) / 2, (y1 - y0) / 2))
+  if (r < 0.005) return rectL(f, x0, y0, x1, y1)
+  const pts: [number, number][] = []
+  const corner = (cx: number, cy: number, a0: number) => {
+    for (let i = 0; i <= 5; i++) {
+      const a = a0 + (i / 5) * (Math.PI / 2)
+      pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r])
+    }
+  }
+  corner(x1 - r, y1 - r, 0)
+  corner(x0 + r, y1 - r, Math.PI / 2)
+  corner(x0 + r, y0 + r, Math.PI)
+  corner(x1 - r, y0 + r, Math.PI * 1.5)
+  return local(f, pts)
+}
+
+/** A colour made lighter (k > 0) or darker (k < 0), for the parts of an upholstered piece. */
+function shade(hex: string, k: number) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex)
+  if (!m) return hex
+  const n = parseInt(m[1], 16)
+  const f = (v: number) => Math.round(k >= 0 ? v + (255 - v) * k : v * (1 + k))
+  const r = f((n >> 16) & 255)
+  const g = f((n >> 8) & 255)
+  const b = f(n & 255)
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`
+}
+
 const CAR_COLORS = ['#2b3038', '#e6e6e3', '#7d1d22', '#1f3a5f', '#9aa1a8']
 const hashId = (id: string) => [...id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7)
 
@@ -486,45 +519,70 @@ export function drawFurniture(dc: DrawContext, f: FurnitureItem, t: PlanTheme) {
   switch (plan) {
     case 'bed':
     case 'bed-single': {
-      dc.polygon(body, fill, st)
-      dc.polygon(rectL(f, -w, -d, w, -d + 0.08), { color: t.furniture, opacity: 0.4 }, thin)
+      // headboard, mattress, pillows, and the duvet with its fold turned back
+      const hb = rendered ? shade(RENDER_FILL.wardrobe, -0.25) : t.furnitureFill
+      dc.polygon(rectL(f, -w, -d, w, -d + 0.08), { color: hb }, st)
+      dc.polygon(roundL(f, -w + 0.02, -d + 0.08, w - 0.02, d, 0.06), { color: rendered ? '#f6f3ee' : t.furnitureFill }, st)
       const pw = plan === 'bed' ? (2 * w - 0.25) / 2 : 2 * w - 0.2
       for (let i = 0; i < (plan === 'bed' ? 2 : 1); i++) {
         const x0 = -w + 0.1 + i * (pw + 0.05)
-        dc.polygon(rectL(f, x0, -d + 0.15, x0 + pw, -d + 0.5), null, thin)
+        dc.polygon(roundL(f, x0, -d + 0.15, x0 + pw, -d + 0.5, 0.07), { color: rendered ? '#ffffff' : t.furnitureFill }, thin)
       }
-      dc.polyline(local(f, [[-w, -d + 0.8], [w, -d + 0.65]]), thin)
+      const duvet = rendered ? (f.color ?? '#8f9fae') : t.furnitureFill
+      dc.polygon(roundL(f, -w + 0.01, -d + 0.62, w - 0.01, d - 0.01, 0.05), { color: duvet }, thin)
+      dc.polygon(rectL(f, -w + 0.01, -d + 0.62, w - 0.01, -d + 0.8), { color: rendered ? shade(duvet, 0.35) : t.furnitureFill }, thin)
       break
     }
-    case 'sofa':
-      dc.polygon(body, fill, st)
-      dc.polygon(rectL(f, -w, -d, w, -d + 0.22), null, thin)
-      dc.polygon(rectL(f, -w, -d + 0.22, -w + 0.2, d), null, thin)
-      dc.polygon(rectL(f, w - 0.2, -d + 0.22, w, d), null, thin)
+    case 'sofa': {
+      // back and arms a shade darker than the seat cushions, one cushion per seat
+      const base = fill.color
+      const frame = { color: rendered ? shade(base, -0.18) : base }
+      dc.polygon(roundL(f, -w, -d, w, d, 0.06), frame, st)
+      dc.polygon(roundL(f, -w, -d, w, -d + 0.22, 0.06), frame, thin)
+      dc.polygon(roundL(f, -w, -d + 0.08, -w + 0.2, d, 0.07), frame, thin)
+      dc.polygon(roundL(f, w - 0.2, -d + 0.08, w, d, 0.07), frame, thin)
+      const seats = Math.max(1, Math.round((2 * w - 0.4) / 0.7))
+      const sw = (2 * w - 0.4) / seats
+      for (let i = 0; i < seats; i++) {
+        const x0 = -w + 0.2 + i * sw
+        dc.polygon(roundL(f, x0 + 0.015, -d + 0.24, x0 + sw - 0.015, d - 0.03, 0.05), { color: rendered ? shade(base, 0.12) : base }, thin)
+      }
       break
+    }
     case 'sofa-l': {
       const pts = local(f, [[-w, -d], [w, -d], [w, d], [w - 0.9, d], [w - 0.9, -d + 0.9], [-w, -d + 0.9]])
-      dc.polygon(pts, fill, st)
-      dc.polyline(local(f, [[-w, -d + 0.22], [w - 0.22, -d + 0.22], [w - 0.22, d]]), thin)
+      dc.polygon(pts, { color: rendered ? shade(fill.color, -0.18) : fill.color }, st)
+      // seat cushions along the long side and the chaise
+      const cushion = { color: rendered ? shade(fill.color, 0.12) : fill.color }
+      const n = Math.max(1, Math.round((2 * w - 1.15) / 0.7))
+      const cw = (2 * w - 1.15) / n
+      for (let i = 0; i < n; i++) dc.polygon(roundL(f, -w + 0.22 + i * cw + 0.015, -d + 0.24, -w + 0.22 + (i + 1) * cw - 0.015, -d + 0.88, 0.05), cushion, thin)
+      dc.polygon(roundL(f, w - 0.88, -d + 0.24, w - 0.24, d - 0.03, 0.05), cushion, thin)
       break
     }
     case 'armchair':
-      dc.polygon(body, fill, st)
-      dc.polygon(rectL(f, -w + 0.15, -d + 0.2, w - 0.15, d - 0.05), null, thin)
+      dc.polygon(roundL(f, -w, -d, w, d, 0.08), { color: rendered ? shade(fill.color, -0.15) : fill.color }, st)
+      dc.polygon(roundL(f, -w + 0.15, -d + 0.2, w - 0.15, d - 0.04, 0.06), { color: rendered ? shade(fill.color, 0.12) : fill.color }, thin)
       break
     case 'dining': {
       const tw = w - 0.45
       const td = d - 0.45
       dc.polygon(rectL(f, -tw, -td, tw, td), fill, st)
       const nx = Math.max(1, Math.round((2 * tw) / 0.6))
+      const seat = rendered ? { color: '#d8cbb6' } : null
+      const back = rendered ? { color: shade(RENDER_FILL.chair, 0.1) } : null
       for (let i = 0; i < nx; i++) {
         const x = -tw + ((i + 0.5) * 2 * tw) / nx
-        dc.polygon(rectL(f, x - 0.2, -d + 0.02, x + 0.2, -td - 0.05), null, thin)
-        dc.polygon(rectL(f, x - 0.2, td + 0.05, x + 0.2, d - 0.02), null, thin)
+        dc.polygon(roundL(f, x - 0.2, -d + 0.02, x + 0.2, -td - 0.05, 0.05), seat, thin)
+        dc.polygon(rectL(f, x - 0.2, -d + 0.02, x + 0.2, -d + 0.07), back, thin)
+        dc.polygon(roundL(f, x - 0.2, td + 0.05, x + 0.2, d - 0.02, 0.05), seat, thin)
+        dc.polygon(rectL(f, x - 0.2, d - 0.07, x + 0.2, d - 0.02), back, thin)
       }
       if (2 * td > 1.0) {
-        dc.polygon(rectL(f, -w + 0.02, -0.2, -tw - 0.05, 0.2), null, thin)
-        dc.polygon(rectL(f, tw + 0.05, -0.2, w - 0.02, 0.2), null, thin)
+        dc.polygon(roundL(f, -w + 0.02, -0.2, -tw - 0.05, 0.2, 0.05), seat, thin)
+        dc.polygon(rectL(f, -w + 0.02, -0.2, -w + 0.07, 0.2), back, thin)
+        dc.polygon(roundL(f, tw + 0.05, -0.2, w - 0.02, 0.2, 0.05), seat, thin)
+        dc.polygon(rectL(f, w - 0.07, -0.2, w - 0.02, 0.2), back, thin)
       }
       break
     }
@@ -713,6 +771,23 @@ function drawRoomLabel(dc: DrawContext, r: Room, t: PlanTheme, o: PlanOptions) {
     size = Math.max(0.08, Math.min(size, avail / (longest * GLYPH)))
   }
   const y0 = (showDims ? c.y - size * 0.8 : c.y) - ((lines.length - 1) * size * 1.25) / 2
+  if (o.textured || t.name === 'rendered') {
+    // dark stone or busy patterns swallowed the lettering: a soft paper-coloured backing behind it
+    const tw = Math.min(inner.w * 0.95, Math.max(...lines.map((l) => l.length)) * size * 0.72 + size * 0.9)
+    const lines2 = showDims && dc.pxPerMeter * size > 5 ? (short > 2.2 ? 2.6 : 1.4) : 0
+    const th = (lines.length - 1) * size * 1.25 + size * (1.5 + lines2)
+    const top = y0 - size * 0.8
+    dc.polygon(
+      [
+        { x: c.x - tw / 2, y: top },
+        { x: c.x + tw / 2, y: top },
+        { x: c.x + tw / 2, y: top + th },
+        { x: c.x - tw / 2, y: top + th }
+      ],
+      { color: t.paper, opacity: 0.72 },
+      null
+    )
+  }
   lines.forEach((ln, i) => dc.text({ x: c.x, y: y0 + i * size * 1.25 }, ln, { size, color: t.text, weight: 600, align: 'center', baseline: 'middle', condensed: true, minPx: 7, maxPx: 15 }))
   if (showDims && dc.pxPerMeter * size > 5) {
     const dims = `${formatLength(b.w, o.units, { compact: true })} × ${formatLength(b.h, o.units, { compact: true })}`

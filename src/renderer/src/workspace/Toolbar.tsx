@@ -107,7 +107,7 @@ export function Toolbar() {
       <SideSection id="layers" title="Layers">
         {LAYER_ROWS.map((l) => (
           <label key={l.k} className="side-check">
-            <input type="checkbox" checked={layers[l.k]} onChange={() => commit(`${layers[l.k] ? 'Hide' : 'Show'} ${l.label.toLowerCase()}`, (d) => void (d.settings.layers[l.k] = !d.settings.layers[l.k]))} />
+            <input type="checkbox" checked={(layers[l.k] ?? l.k === 'context')} onChange={() => commit(`${(layers[l.k] ?? l.k === 'context') ? 'Hide' : 'Show'} ${l.label.toLowerCase()}`, (d) => void (d.settings.layers[l.k] = !(d.settings.layers[l.k] ?? l.k === 'context')))} />
             {l.label}
           </label>
         ))}

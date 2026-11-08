@@ -665,8 +665,8 @@ function Layers() {
       </div>
       <div className="list">
         {LAYERS.map((l) => (
-          <div key={l.k} className="list-item" onClick={() => commit(`${layers[l.k] ? 'Hide' : 'Show'} ${l.label.toLowerCase()}`, (d) => void (d.settings.layers[l.k] = !d.settings.layers[l.k]))}>
-            {layers[l.k] ? <Eye size={15} /> : <EyeOff size={15} className="faint" />}
+          <div key={l.k} className="list-item" onClick={() => commit(`${(layers[l.k] ?? l.k === 'context') ? 'Hide' : 'Show'} ${l.label.toLowerCase()}`, (d) => void (d.settings.layers[l.k] = !(d.settings.layers[l.k] ?? l.k === 'context')))}>
+            {(layers[l.k] ?? l.k === 'context') ? <Eye size={15} /> : <EyeOff size={15} className="faint" />}
             <div>
               <div>{l.label}</div>
               <div className="faint" style={{ fontSize: 11 }}>
