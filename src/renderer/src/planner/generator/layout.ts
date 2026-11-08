@@ -63,6 +63,33 @@ export interface FloorLayoutInput {
   party: PartyLines
   /** Basement: only the back edge (light wells) gets daylight. */
   basement?: boolean
+  /**
+   * The floor below, already laid out (upper floors only): each unit's rectangle, the share of it
+   * that is wet (baths, kitchens, laundry; for suites, their attached baths) and whether it is a
+   * dry habitable room. Wet rooms stacked over wet rooms keep drains short and out of bedroom
+   * ceilings (amendment A13).
+   */
+  below?: BelowUnit[]
+}
+
+export interface BelowUnit {
+  rect: Rect
+  wet: number
+  dry: boolean
+}
+
+/** Share of a unit that is wet: the whole of a bath or kitchen, the attached baths of a suite. */
+export function wetShare(type: RoomType, item: ProgramItem | undefined, rect: Rect): number {
+  if (spec(type).wet) return 1
+  if (!item?.children.length) return 0
+  const a = Math.max(0.01, rect.w * rect.h)
+  const wet = item.children.filter((c) => spec(c.type).wet).reduce((s, c) => s + c.w * c.d, 0)
+  return Math.min(1, wet / a)
+}
+
+/** The floor's units as seen from the floor above (see FloorLayoutInput.below). */
+export function belowUnits(slots: PlacedSlot[]): BelowUnit[] {
+  return units(slots).map((u) => ({ rect: u.rect, wet: wetShare(u.type, u.item, u.rect), dry: spec(u.type).habitable && !spec(u.type).wet && !spec(u.type).outdoor }))
 }
 
 export interface StrategyWeights {
@@ -172,6 +199,12 @@ export function placeColumns(columns: ColumnState[], fp: Rect, stairType: StairT
 }
 
 /** Shared edge length between two axis-aligned rects (0 if they don't touch). */
+export function overlapArea(a: Rect, b: Rect): number {
+  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)
+  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)
+  return w > 0 && h > 0 ? w * h : 0
+}
+
 export function contact(a: Rect, b: Rect, tol = 1e-3): number {
   if (Math.abs(a.x + a.w - b.x) < tol || Math.abs(b.x + b.w - a.x) < tol) {
     return Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))
@@ -257,7 +290,7 @@ function units(slots: PlacedSlot[]): Unit[] {
 
 export function evaluate(slots: PlacedSlot[], inp: FloorLayoutInput): { cost: number; breakdown: Record<string, number> } {
   const fp = inp.footprint
-  const b: Record<string, number> = { size: 0, dims: 0, access: 0, circulation: 0, entrance: 0, zoning: 0, light: 0, adjacency: 0, stair: 0 }
+  const b: Record<string, number> = { size: 0, dims: 0, access: 0, circulation: 0, entrance: 0, zoning: 0, light: 0, adjacency: 0, stair: 0, plumbing: 0 }
   const us = units(slots)
   const n = us.length
   const C: number[][] = Array.from({ length: n }, () => new Array(n).fill(0))
@@ -296,6 +329,24 @@ export function evaluate(slots: PlacedSlot[], inp: FloorLayoutInput): { cost: nu
       if (excess > 0) b.stair += excess * excess * 25 + excess * 10
     }
     if (u.rect.h < 0.3) b.dims += 80
+  }
+
+  // plumbing: wet rooms over wet rooms, not over bedrooms and lounges (upper floors)
+  if (inp.level > 0 && inp.below?.length) {
+    for (const u of us) {
+      const wu = wetShare(u.type, u.item, u.rect)
+      if (wu <= 0) continue
+      let stacked = 0
+      let overDry = 0
+      for (const q of inp.below) {
+        const o = overlapArea(u.rect, q.rect)
+        if (!o) continue
+        stacked += o * Math.min(1, q.wet * 2)
+        if (q.dry) overDry += o * (1 - q.wet)
+      }
+      const wetA = wu * u.rect.w * u.rect.h
+      b.plumbing += 1.6 * wu * overDry + 0.5 * Math.max(0, wetA - wu * stacked)
+    }
   }
 
   // access: each walkable non-hub unit must touch a hub

@@ -22,7 +22,7 @@ import { ft } from '../../core/units/units'
 import { rng, type Rng } from './random'
 import { buildProgram, itemArea, levelName, levelsFor, ROOF_LEVEL, stairDims, type ProgramItem } from './program'
 import { chooseFootprint, planEnvelope } from './siteplan'
-import { edgeExposure, optimizeFloor, type FloorLayoutInput, type FloorLayoutResult, type PartyLines, type PinnedSlot, type PlacedSlot, type StrategyWeights } from './layout'
+import { edgeExposure, optimizeFloor, type FloorLayoutInput, type FloorLayoutResult, type PartyLines, type PinnedSlot, type PlacedSlot, type StrategyWeights, belowUnits } from './layout'
 import { splitSuite, type Edge } from './suites'
 import { rebuildWalls, effectiveKind, wallsOfRoom } from '../walls'
 import { addDoor, placeWindows, sharedWalls, DOOR_W, roomRect } from './openings'
@@ -340,7 +340,8 @@ function generateOnce(req: Requirements, plot: Plot, strategy: DesignStrategy, o
         garage: lv === 0 ? garageRect : undefined,
         stairType: program.stairType,
         party,
-        basement: lv < 0
+        basement: lv < 0,
+        below: lv > 0 && layouts.has(lv - 1) ? belowUnits(layouts.get(lv - 1)!.slots) : undefined
       }
       let best: FloorLayoutResult | null = null
       const tries = Math.max(1, Math.round((lv === 0 ? 3 : 2) * triesScale))
@@ -408,7 +409,8 @@ function generateOnce(req: Requirements, plot: Plot, strategy: DesignStrategy, o
     const kind = lv < 0 ? 'basement' : lv === 0 ? 'ground' : 'upper'
     const f = makeFloor(kind, lv, floorHeight, ids)
     const lay = layouts.get(lv)!
-    f.rooms = materializeRooms(lay.slots, party, lv === 0 ? garageRect : undefined, lv, ids, program.stairType, stairKeep, warnings)
+    const belowRooms = lv > 0 ? floors.find((x) => x.level === lv - 1)?.rooms : undefined
+    f.rooms = materializeRooms(lay.slots, party, lv === 0 ? garageRect : undefined, lv, ids, program.stairType, stairKeep, warnings, belowRooms)
     floors.push(f)
   }
   floors.sort((a, b) => a.level - b.level)
@@ -825,8 +827,12 @@ function materializeRooms(
   ids: IdFactory,
   stairType: StairType,
   stairKeep: { side?: ReturnType<typeof sideTouchingHub> },
-  warnings: string[]
+  warnings: string[],
+  below?: Room[]
 ): Room[] {
+  // the floor below: en-suite baths go over its baths and kitchens rather than its bedrooms
+  const wetBelow = below?.filter((r) => spec(r.type).wet).map((r) => bbox(r.polygon))
+  const dryBelow = below?.filter((r) => spec(r.type).habitable && !spec(r.type).wet && !spec(r.type).outdoor).map((r) => bbox(r.polygon))
   const rooms: Room[] = []
   const hubRects = slots.flatMap((s) => (s.parts ? s.parts.filter((p) => p.hub).map((p) => p.rect) : s.hub ? [s.rect] : []))
   const all = slots.flatMap((s) => (s.parts ? s.parts.map((p) => ({ rect: p.rect, open: !!p.openToSky })) : [{ rect: s.rect, open: s.type === 'courtyard' || !!s.pin?.openToSky }]))
@@ -886,7 +892,9 @@ function materializeRooms(
     const ex = edgeExposure(r, all, party, garage, level < 0)
     const ctx = {
       access: { left: edgeAccess('left'), right: edgeAccess('right'), front: edgeAccess('front'), back: edgeAccess('back') },
-      exterior: { left: ex.left > 1, right: ex.right > 1, back: ex.back > 1, front: ex.front > 1 }
+      exterior: { left: ex.left > 1, right: ex.right > 1, back: ex.back > 1, front: ex.front > 1 },
+      wetBelow,
+      dryBelow
     }
     const parts = splitSuite(r, it.type, it.children, ctx)
     if (parts.length === 1) warnings.push(`${it.name} is too small for its attached ${it.children.map((c) => spec(c.type).label.toLowerCase()).join(' and ')} — enlarge it or add a floor`)

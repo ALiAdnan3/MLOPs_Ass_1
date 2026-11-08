@@ -25,6 +25,16 @@ export interface SplitContext {
   access: Record<Edge, number>
   /** Edges on the building exterior (window-capable). */
   exterior: Record<Edge, boolean>
+  /** Wet rooms (baths, kitchens) on the floor below: attached baths prefer to sit over them. */
+  wetBelow?: Rect[]
+  /** Bedrooms and lounges on the floor below: attached baths avoid sitting over them. */
+  dryBelow?: Rect[]
+}
+
+function overlapR(a: Rect, b: Rect) {
+  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)
+  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)
+  return w > 0 && h > 0 ? w * h : 0
 }
 
 export function splitSuite(slot: Rect, parentType: RoomType, children: ChildSpec[], ctx: SplitContext): SuitePart[] {
@@ -117,14 +127,26 @@ export function splitSuite(slot: Rect, parentType: RoomType, children: ChildSpec
         if (ctx.exterior[endEdge]) score += 4
         if (ctx.access[endEdge] > 0.5) score -= 6
       }
+      let childrenFit = true
       for (const p of parts.slice(1)) {
         const s = Math.min(p.rect.w, p.rect.h)
         const minW = spec(p.type).minWidth
-        if (s < minW) score -= (minW - s) * 30
+        if (s < minW) {
+          score -= (minW - s) * 30
+          childrenFit = false
+        }
         const asp = Math.max(p.rect.w, p.rect.h) / Math.max(0.1, s)
         if (asp > 2.6) score -= (asp - 2.6) * 6
       }
       if (parent.poly && area(parent.poly) < spec(parentType).minArea) score -= 40
+      // plumbing: the bath over a bath or kitchen below, not over a bedroom (amendment A13)
+      // (only among splits where every attached room is usable and the room itself keeps a window
+      // wall: a usable bath and daylight in the bedroom come first)
+      for (const p of parts.slice(1)) {
+        if (!childrenFit || !spec(p.type).wet || (!parentExterior && spec(parentType).habitable)) continue
+        for (const r of ctx.wetBelow ?? []) score += overlapR(p.rect, r) * 4
+        for (const r of ctx.dryBelow ?? []) score -= overlapR(p.rect, r) * 3
+      }
       if (!best || score > best.score) best = { parts, score }
     }
   }

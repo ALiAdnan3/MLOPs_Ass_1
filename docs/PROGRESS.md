@@ -27,9 +27,9 @@ To go back: `git checkout v1.0-before-pro`, or install the saved setup exe.
 |---|---|---|
 | P0 | Save the current version; start this log | Done |
 | P1 | Rendering pipeline v2: idle progressive refinement (jittered supersampling, soft area-light shadows, AO), new preset table, tone mapping, texture resolution, accumulated snapshots | Done (first pass) |
-| P2 | Material and geometry realism: texture maps, glass, wall and trim detail | Planned |
-| P3 | 2D plan visualization: presentation-grade plan drawing | Planned |
-| P4 | AI generator: many candidate layouts, each scored on proportions, adjacency, light, circulation and compliance; the best one is kept | Planned |
+| P2 | Material and geometry realism: texture maps, glass, wall and trim detail | Done (furniture, neighbourhood context) |
+| P3 | 2D plan visualization: presentation-grade plan drawing | Done (symbols, labels) |
+| P4 | AI generator: plumbing stacking across floors, measured on a fixed benchmark | Done (first pass) |
 | P5 | UI/UX polish across the screens | Planned |
 | P6 | Verify (unit, e2e, benchmarks), build the installer, commit and push | Planned |
 
@@ -86,3 +86,29 @@ All presets use soft PCF and anisotropy 16. Ultra at 2048 px textures took 20+ s
 | Ultra | 30.3 | 0.67 s | 48–51 | 0.67–0.74 s |
 
 **Next for P1:** the one hitch on High and Ultra; night exteriors (window glow, facade lights).
+
+### 2026-11-09: P2, P3, P4
+
+**P2 realism:**
+- **Furniture.** `MeshBuilder.roundedBox` (smooth normals) makes upholstery, mattresses, pillows and duvets soft. Sofas gain seat and back cushions. Every furniture box gets a 6 mm bevel.
+- **Neighbourhood context** (`engine/builders/context.ts`):
+  - Two neighbours each side plus the row behind, in local style: flat roofs, parapets, stair towers, water tanks, boundary walls with gates, cladding, forecourts.
+  - Neighbours keep to this house's building line; the nearest stay at two storeys. Some windows glow softly at night.
+  - Hidden in orthographic views; new layer `context` ("Neighbourhood"), on by default.
+
+**P3 2D plan:**
+- Plan symbols for sofas (cushion per seat), L-sofas, armchairs, beds (headboard, pillows, duvet and fold) and dining chairs (seat and back). They are rounded polygons, so all export backends get them.
+- Room labels on rendered plans have a paper-coloured backing; "ENTRANCE" had been unreadable on black marble.
+
+**P4 generator (honest scope):**
+- The generator is a simulated-annealing optimizer with a hand-built cost function, not a trained model. There is no dataset to train on; "AI improvement" here means better architectural criteria, measured on a fixed benchmark.
+- Benchmark: `tests/generator-quality.test.ts` (18 designs: 5 marla, 10 marla, 1 kanal × family, privacy, room-space × 2 seeds). Results go to `test-results/generator-quality.json` under `GQ_LABEL`.
+- **Added plumbing stacking:**
+  - Upper floors see the floor below (`FloorLayoutInput.below`). The cost penalises wet rooms over bedrooms and lounges and unstacked wet area.
+  - En-suite baths prefer the side over wet rooms below. This applies only among splits where every attached room is usable and the bedroom keeps its window wall.
+- **Result:** stacked wet area 20% → 27%; wet area over bedrooms and lounges 16.5 → 13.3 m² per design; light 67.1 → 68.6; overall 65.5 → 65.8; errors 0 → 0.
+- **Rejected:**
+  - A room-proportion term: it squeezed baths to 1.3 × 0.8 m on small plots and cost daylight.
+  - Doubling the plumbing weights: stacking reached 37% but light fell to 63.
+
+**Test note:** a full `vitest run` occasionally fails all files at start-up with no message when the machine is busy; a rerun passes.
