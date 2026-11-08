@@ -6,6 +6,7 @@ import { useUI, type CameraPreset, type ViewMode3D } from '../state/ui'
 import type { EntityRef, SurfaceRef, LightingSettings } from '../core/model/types'
 import { Seg, IconButton, Menu, type MenuItem, openContextMenu, askText } from '../ui/primitives'
 import { presetTime, LIGHT_PRESETS } from './lighting/sun'
+import { RenderStatus } from './RenderStatus'
 import { uid } from '../core/model/ids'
 import { WalkController } from './controllers/WalkController'
 import { DroneController } from './controllers/DroneController'
@@ -176,6 +177,7 @@ export function Viewport3D() {
     <div style={{ position: 'absolute', inset: 0 }}>
       <div ref={ref} style={{ position: 'absolute', inset: 0 }} onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerMove={onPointerMove} onContextMenu={onContextMenu} onPointerLeave={() => engine.highlight(null, 'hover')} aria-label="3D view" />
       {(mode === '3d' || mode === 'materials' || mode === 'interior' || mode === 'exterior') && <ViewBar />}
+      {mode !== 'walk' && mode !== 'drone' && mode !== 'present' && <RenderStatus engine={engine} />}
     </div>
   )
 }

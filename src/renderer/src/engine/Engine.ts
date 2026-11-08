@@ -251,8 +251,25 @@ export class Engine {
     return this.renderer.domElement
   }
 
+  /** Frames drawn since the view was last mounted (0: still preparing). */
+  framesDrawn = 0
+
+  /**
+   * What the view is doing, for the status shown over it: preparing (shaders compiling, nothing
+   * drawn yet), moving, refining a still view (with progress 0..1) or done.
+   */
+  status(): { phase: 'preparing' | 'moving' | 'refining' | 'done'; progress: number } {
+    if (!this.framesDrawn) return { phase: 'preparing', progress: 0 }
+    if (this.refined) return { phase: 'done', progress: 1 }
+    const n = this.pipeline.samples
+    const total = QUALITY[this.quality].samples
+    if (n <= 1 || performance.now() - this.changedAt < 140) return { phase: 'moving', progress: 0 }
+    return { phase: 'refining', progress: Math.min(1, n / total) }
+  }
+
   mount(el: HTMLElement) {
     if (this.container === el) return
+    this.framesDrawn = 0
     this.container = el
     el.appendChild(this.canvas)
     this.ro?.disconnect()
@@ -1125,6 +1142,7 @@ export class Engine {
         }
       }
       this.renderFrame()
+      this.framesDrawn++
       this.onFrame?.()
       return
     }

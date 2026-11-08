@@ -2725,3 +2725,102 @@ table.compare .better {
   background: var(--tape);
   transition: width 0.3s;
 }
+
+/* ── 3D render status (A13) ─────────────────────────────────────────────── */
+.rs-preparing {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  border: 1px solid var(--line-soft);
+  color: var(--text-2);
+  font-size: 13px;
+  pointer-events: none;
+}
+.rs-wrap {
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.rs-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 14px;
+  border: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  backdrop-filter: blur(8px);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  order: 2;
+}
+.rs-pill:hover,
+.rs-pill.on {
+  color: var(--text);
+  border-color: var(--line);
+}
+.rs-pill:focus-visible,
+.rs-opt:focus-visible {
+  outline: 2px solid var(--tape);
+  outline-offset: 2px;
+}
+.rs-menu {
+  order: 1;
+  width: 280px;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow-float);
+}
+.rs-head {
+  padding: 6px 8px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.rs-opt {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+.rs-opt:hover {
+  background: var(--raised);
+}
+.rs-opt.on {
+  background: var(--tape-soft);
+}
+.rs-opt.on .rs-name {
+  color: var(--tape);
+}
+.rs-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.rs-desc {
+  font-size: 12px;
+  line-height: 1.4;
+}
