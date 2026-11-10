@@ -321,6 +321,7 @@ export class Engine {
 
   setQuality(q: Quality) {
     this.quality = q
+    this.live = { ao: true, frames: 0, skips: 0 }
     const Q = QUALITY[q]
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Q.pixelRatio))
     this.renderer.shadowMap.enabled = true
@@ -363,7 +364,7 @@ export class Engine {
   private frameSettings(still: boolean): FrameSettings {
     const Q = QUALITY[this.quality]
     return {
-      ao: (still || Q.aoLive) && this.options.viewMode !== 'architectural',
+      ao: (still || (Q.aoLive && this.live.ao)) && this.options.viewMode !== 'architectural',
       bloom: still || Q.bloomLive ? this.bloomStrength : 0,
       fxaa: true
     }
@@ -1129,6 +1130,15 @@ export class Engine {
       return
     }
     if (dirty) {
+      // back-pressure: while the GPU is still drawing the last frame, wait a refresh rather than
+      // queue another. Queued frames that each took a little longer than a refresh piled up in
+      // the browser until it stalled for ~0.6 s to catch up (High and Ultra, mid-orbit).
+      // (two frames may be in flight: the browser reports a frame done a refresh late)
+      if (this.movingBacklog() && performance.now() - this.fenceAt < 100) {
+        this.needs = true
+        this.live.skips++
+        return
+      }
       this.needs = false
       this.restart()
       // walking in or out of the house at night swaps interior lights on/off
@@ -1142,7 +1152,9 @@ export class Engine {
         }
       }
       this.renderFrame()
+      this.fenceMoving()
       this.framesDrawn++
+      this.adaptLive()
       this.onFrame?.()
       return
     }
@@ -1169,12 +1181,44 @@ export class Engine {
   private stillStarted = false
   private fence: WebGLSync | null = null
   /** Mark the end of the work just issued; gpuIdle() says when the GPU has done it. */
+  /** Fences of the last moving frames, oldest first. */
+  private movingFences: WebGLSync[] = []
+  private fenceMoving() {
+    const gl = this.renderer.getContext() as WebGL2RenderingContext
+    if (!gl.fenceSync) return
+    this.movingFences.push(gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!)
+    this.fenceAt = performance.now()
+    gl.flush()
+  }
+  /** More than two moving frames still unfinished on the GPU. */
+  private movingBacklog() {
+    const gl = this.renderer.getContext() as WebGL2RenderingContext
+    const f = this.movingFences
+    while (f.length && gl.getSyncParameter(f[0], gl.SYNC_STATUS) === gl.SIGNALED) gl.deleteSync(f.shift()!)
+    return f.length >= 2
+  }
+  private fenceAt = 0
   private fenceGpu() {
     const gl = this.renderer.getContext() as WebGL2RenderingContext
     if (!gl.fenceSync) return
     if (this.fence) gl.deleteSync(this.fence)
     this.fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)
+    this.fenceAt = performance.now()
     gl.flush()
+  }
+
+  /**
+   * Live effects while moving, adapted to the graphics card: if moving frames keep outrunning the
+   * GPU (a third of refreshes waited over the last 40 frames), ambient occlusion is left to the
+   * still picture for the rest of the session at this preset. Still views always get it.
+   */
+  private live = { ao: true, frames: 0, skips: 0 }
+  private adaptLive() {
+    const l = this.live
+    if (++l.frames < 40) return
+    if (l.ao && QUALITY[this.quality].aoLive && l.skips / (l.frames + l.skips) > 0.33) l.ao = false
+    l.frames = 0
+    l.skips = 0
   }
   private gpuIdle() {
     if (!this.fence) return true
