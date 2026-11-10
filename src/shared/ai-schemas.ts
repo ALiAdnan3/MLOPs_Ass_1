@@ -114,6 +114,7 @@ export const EDIT_OPS = [
   'adjust_floor_height',
   'scale_site_area',
   'add_site_area',
+  'remove_trees',
   'set_exterior_material',
   'set_room_material',
   'apply_uploaded_material',
@@ -176,6 +177,7 @@ Rules:
 - set_garage_cars: amount = number of cars. adjust_floor_height: amount = change in feet (all floors when target is null).
 - scale_site_area: target = patio | lawn | pool | driveway | deck, amount = percent change.
 - add_site_area: target = pool | patio | play_area | bbq_area | garden_bed.
+- remove_trees: removes every tree and palm on the plot (shrubs, hedges and flowers stay).
 - set_exterior_material / set_room_material: value = a material category (stone, marble, brick, wood, concrete, paint, granite, tiles) or library id; for set_room_material put the surface (floor, walls, ceiling) in axis-free text after a colon in value, e.g. "floor:marble".
 - apply_uploaded_material: the user refers to "this marble/material" they uploaded; target = room, value = surface.
 - set_style: value = architectural style. set_roof: value = flat | hip | gable | shed | mansard. set_window_scale: amount = multiplier (1.3 = 30% larger).

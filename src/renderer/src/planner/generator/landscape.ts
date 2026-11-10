@@ -124,11 +124,8 @@ export function designLandscape(inp: LandscapeInput): LandscapeResult {
   for (const r of frontFree) {
     if (req.outdoor.frontLawn && r.w >= 1.0 && r.h >= 1.0) {
       area('lawn', r, 'lib:grass-lawn', { name: 'Front lawn' })
-      // trees along the boundary
-      if (r.w > 3 && r.h > 3) {
-        const n = Math.max(1, Math.floor(r.w / 4.5))
-        for (let i = 0; i < n; i++) obj(rnd.chance(inp.luxury > 60 ? 0.5 : 0.2) ? 'palm' : 'tree', { x: r.x + ((i + 0.5) * r.w) / n, y: r.y + r.h - 1.0 }, rnd.range(0.85, 1.15), rnd.range(0, 6.28))
-      }
+      // no trees in generated designs: their crowns hid the house in pictures and the plan
+      // (the owner can still plant them with the Garden tool)
       if (r.w > 1.6) obj('hedge', { x: r.x + r.w / 2, y: r.y + 0.45 }, 1, 0, { width: r.w - 0.4, depth: 0.5 })
       if (req.outdoor.garden && r.w > 2.5 && r.h > 2.5) obj('flowers', { x: r.x + 0.9, y: r.y + r.h / 2 }, 1)
       if ((req.style === 'islamic' || inp.luxury >= 75) && r.w > 5 && r.h > 4) {
@@ -195,10 +192,6 @@ export function designLandscape(inp: LandscapeInput): LandscapeResult {
     for (const r of backFree) {
       if ((req.outdoor.backLawn || req.outdoor.garden || req.preferences.greenSpace > 55) && r.w >= 1.2 && r.h >= 1.2) {
         area('lawn', r, 'lib:grass-lawn', { name: 'Back lawn' })
-        if (r.h > 2.4 && r.w > 3) {
-          const n = Math.max(1, Math.floor(r.w / 5))
-          for (let i = 0; i < n; i++) obj('tree', { x: r.x + ((i + 0.5) * r.w) / n, y: r.y + 0.9 }, rnd.range(0.8, 1.2), rnd.range(0, 6.28))
-        }
         if (req.outdoor.garden) obj('shrub', { x: r.x + 0.6, y: r.y + r.h - 0.6 })
       } else if (r.w >= 0.6 && r.h >= 0.6) area('walkway', r, 'lib:concrete-smooth', { name: 'Service yard' })
     }
@@ -212,7 +205,7 @@ export function designLandscape(inp: LandscapeInput): LandscapeResult {
     if (s.w >= 1.5) {
       area('lawn', s, 'lib:grass-lawn', { name: 'Side garden' })
       const n = Math.floor(s.h / 5)
-      for (let i = 0; i < n; i++) obj(i % 2 ? 'shrub' : 'tree', { x: s.x + s.w / 2, y: s.y + 2.5 + i * 5 }, rnd.range(0.8, 1.1))
+      for (let i = 0; i < n; i += 2) obj('shrub', { x: s.x + s.w / 2, y: s.y + 2.5 + i * 5 }, rnd.range(0.8, 1.1))
     } else area('walkway', s, 'lib:gravel', { name: 'Side passage' })
   }
 

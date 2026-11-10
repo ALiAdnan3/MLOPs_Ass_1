@@ -232,6 +232,11 @@ export function parseEditOffline(text: string, p: Project, floorId: string): Edi
         continue
       }
     }
+    // trees and palms: "remove the trees", "no trees", "without palms"
+    if (/\b(trees?|palms?)\b/.test(c) && /\b(remove|delete|no|without|get rid of|clear|cut)\b/.test(c)) {
+      ops.push(op({ op: 'remove_trees' }))
+      continue
+    }
     // outdoor areas
     const siteKind: SiteAreaKind | null = /\b(swimming )?pool\b/.test(c) ? 'pool' : /\bpatio\b/.test(c) ? 'patio' : /\b(lawn|garden|grass)\b/.test(c) && !/rooftop|roof garden/.test(c) ? 'lawn' : /\bdriveway\b/.test(c) ? 'driveway' : /\bdeck\b/.test(c) && !rooms.length ? 'deck' : /\b(play ?area|playground|kids area)\b/.test(c) ? 'play_area' : /\b(bbq|barbecue|barbeque)\b/.test(c) ? 'bbq_area' : /\b(flower bed|garden bed|planting)\b/.test(c) ? 'garden_bed' : null
     if (siteKind && !rooms.some((r) => r.hit && !spec(r.hit.room.type).outdoor)) {
@@ -408,6 +413,8 @@ function describeOps(ops: EditOp[], p: Project, floorId: string): string {
           return (o.amount ?? 0) <= -100 ? `Remove the ${o.target}` : `${(o.amount ?? 0) > 0 ? 'Enlarge' : 'Reduce'} the ${o.target}`
         case 'add_site_area':
           return `Add a ${String(o.target).replace('_', ' ')}`
+        case 'remove_trees':
+          return 'Remove the trees'
         case 'set_exterior_material':
           return `Use ${o.value} on the ${o.target === 'accent' ? 'facade cladding' : o.target ?? 'facade'}`
         case 'set_room_material':
@@ -537,7 +544,7 @@ export async function applyEditPlan(plan: EditPlan, label: string): Promise<Edit
   // ambiguity check before touching the model
   for (const o of plan.operations) {
     for (const ref of [o.target, o.other]) {
-      if (!ref || ['add_site_area', 'scale_site_area', 'set_exterior_material', 'set_floor_height', 'adjust_floor_height', 'set_style', 'set_roof', 'add_exterior_lighting', 'set_window_scale', 'set_solar'].includes(o.op)) continue
+      if (!ref || ['add_site_area', 'scale_site_area', 'remove_trees', 'set_exterior_material', 'set_floor_height', 'adjust_floor_height', 'set_style', 'set_roof', 'add_exterior_lighting', 'set_window_scale', 'set_solar'].includes(o.op)) continue
       if (p0.floors.some((f) => f.rooms.some((r) => r.id === ref))) continue
       const m = roomMentions(ref, p0, floorId)[0]
       if (m && !m.hit && m.ambiguous.length > 1) {
@@ -790,6 +797,12 @@ function execute(d: Project, o: EditOp, floorId: string): string | null {
       const f0 = floors[0]
       const nf = d.floors.find((x) => x.id === f0.id)!
       return `${floors.length > 1 ? 'Ceilings' : `${f0.name} ceiling`} now ${formatLength(nf.height - nf.slabThickness, u)} clear (floor to floor ${formatLength(nf.height, u)}); stairs were updated`
+    }
+    case 'remove_trees': {
+      const n = d.site.objects.filter((x) => x.kind === 'tree' || x.kind === 'palm').length
+      if (!n) throw new EditError('there are no trees on the plot.')
+      d.site.objects = d.site.objects.filter((x) => x.kind !== 'tree' && x.kind !== 'palm')
+      return `${n} ${n === 1 ? 'tree' : 'trees'} removed; shrubs, hedges and flowers stay`
     }
     case 'scale_site_area': {
       const kind = (o.target ?? 'patio') as SiteAreaKind

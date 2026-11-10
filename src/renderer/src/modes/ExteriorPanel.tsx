@@ -178,6 +178,35 @@ export function ExteriorPanel() {
           </>
         )}
       </div>
+      <GardenTrees project={project} />
+    </div>
+  )
+}
+
+/** Trees and palms on the plot: how many, and a way to clear them all at once (they can be planted again with the Garden tool). */
+function GardenTrees({ project }: { project: Project }) {
+  const trees = project.site.objects.filter((o) => o.kind === 'tree' || o.kind === 'palm').length
+  return (
+    <div className="section">
+      <div className="section-head">
+        <h3>Garden</h3>
+      </div>
+      <div className="prop">
+        <label>Trees</label>
+        <span>{trees ? `${trees} on the plot` : 'None'}</span>
+      </div>
+      {trees > 0 && (
+        <button
+          className="btn"
+          style={{ marginTop: 6 }}
+          onClick={() => {
+            commit('Remove all trees', (d) => void (d.site.objects = d.site.objects.filter((o) => o.kind !== 'tree' && o.kind !== 'palm')))
+            useUI.getState().toast({ kind: 'success', title: `Removed ${trees} ${trees === 1 ? 'tree' : 'trees'}`, body: 'Undo brings them back. Plant new ones with the Garden tool in the plan.' })
+          }}
+        >
+          Remove all trees
+        </button>
+      )}
     </div>
   )
 }
