@@ -4,6 +4,7 @@ import { GradientSky } from './lighting/GradientSky'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { captureCanvas } from '../render/encode'
 import { RenderPipeline, jitterAt, discAt, type FrameSettings } from './render/Pipeline'
+import { PlanarReflection, planarUniforms } from './render/PlanarReflection'
 import type { CameraBookmark, Floor, Project, Quality, SurfaceRef, Vec2 } from '../core/model/types'
 import { MaterialManager } from './materials/MaterialManager'
 import { buildFloor, hasPitchedRoof, type FloorBuild } from './builders/house'
@@ -71,12 +72,14 @@ interface QualitySpec {
   samples: number
   /** Samples per picture (cards, showcase, exports). */
   pictureSamples: number
+  /** Floor reflections indoors: none, in still views and pictures, or also while moving. */
+  reflections: 'off' | 'still' | 'live'
 }
 export const QUALITY: Record<Quality, QualitySpec> = {
-  low: { pixelRatio: 1, shadows: 2048, shadowRadius: 2.5, tex: 1024, lights: 8, aoLive: false, bloomLive: false, samples: 16, pictureSamples: 12 },
-  medium: { pixelRatio: 1.25, shadows: 2048, shadowRadius: 2.5, tex: 1024, lights: 8, aoLive: false, bloomLive: true, samples: 32, pictureSamples: 16 },
-  high: { pixelRatio: 1.5, shadows: 4096, shadowRadius: 3, tex: 1024, lights: 8, aoLive: true, bloomLive: true, samples: 64, pictureSamples: 24 },
-  ultra: { pixelRatio: 2, shadows: 4096, shadowRadius: 3, tex: 1024, lights: 12, aoLive: true, bloomLive: true, samples: 128, pictureSamples: 40 }
+  low: { pixelRatio: 1, shadows: 2048, shadowRadius: 2.5, tex: 1024, lights: 8, aoLive: false, bloomLive: false, samples: 16, pictureSamples: 12, reflections: 'off' },
+  medium: { pixelRatio: 1.25, shadows: 2048, shadowRadius: 2.5, tex: 1024, lights: 8, aoLive: false, bloomLive: true, samples: 32, pictureSamples: 16, reflections: 'off' },
+  high: { pixelRatio: 1.5, shadows: 4096, shadowRadius: 3, tex: 1024, lights: 8, aoLive: true, bloomLive: true, samples: 64, pictureSamples: 24, reflections: 'still' },
+  ultra: { pixelRatio: 2, shadows: 4096, shadowRadius: 3, tex: 1024, lights: 12, aoLive: true, bloomLive: true, samples: 128, pictureSamples: 40, reflections: 'live' }
 }
 
 /** Angular radius of the sun's disc for soft shadows, radians (larger than the real 0.27° for a pleasing penumbra). */
@@ -120,6 +123,11 @@ export class Engine {
   private timer = new THREE.Timer()
   private ro: ResizeObserver | null = null
   private pipeline!: RenderPipeline
+  private planar = new PlanarReflection()
+  /** The floor reflection was drawn for the view being refined. */
+  private planarFresh = false
+  /** The view being refined has a floor reflection. */
+  private planarOn = false
   /** Bloom strength for the current time of day. */
   private bloomStrength = 0.05
   /** A still view has been refined to its full number of samples (tests wait for this). */
@@ -321,7 +329,7 @@ export class Engine {
 
   setQuality(q: Quality) {
     this.quality = q
-    this.live = { ao: true, frames: 0, skips: 0 }
+    this.live = { ao: true, refl: true, frames: 0, skips: 0 }
     const Q = QUALITY[q]
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Q.pixelRatio))
     this.renderer.shadowMap.enabled = true
@@ -357,6 +365,7 @@ export class Engine {
   private sizePost(w: number, h: number) {
     const pr = this.renderer.getPixelRatio()
     this.pipeline.setSize(w * pr, h * pr)
+    this.planar.setSize(w * pr, h * pr)
     this.restart()
   }
 
@@ -370,8 +379,37 @@ export class Engine {
     }
   }
 
+  /**
+   * Floor reflections for this frame (A13): indoors, in perspective views, on presets that have
+   * them, the room is drawn mirrored in the floor under the camera. Still views draw it once per
+   * picture; Ultra also redraws it as the camera moves (unless the GPU cannot keep up).
+   */
+  private updatePlanar(still: boolean, inside: boolean) {
+    const mode = QUALITY[this.quality].reflections
+    const want = mode !== 'off' && (still || (mode === 'live' && this.live.refl)) && inside && this.active === this.camera && this.options.viewMode !== 'architectural'
+    const planeY = want ? this.floorUnderCamera() : null
+    this.planarOn = planeY !== null && this.planar.render(this.renderer, this.scene, this.camera, planeY)
+    planarUniforms.planarStrength.value = this.planarOn ? 1 : 0
+    this.planarFresh = still
+  }
+
+  /** World height of the room floors on the storey the camera is in (null when it is in none). */
+  private floorUnderCamera(): number | null {
+    const p = this.project
+    if (!p) return null
+    const y = this.camera.position.y
+    for (const f of p.floors) {
+      const e = this.floors.get(f.id)
+      if (!e || !e.build.group.visible) continue
+      const gy = e.build.group.position.y
+      if (y > gy && y < gy + f.height) return gy + 0.004
+    }
+    return null
+  }
+
   /** The view changed: the refined picture starts over. */
   private restart() {
+    this.planarFresh = false
     this.pipeline.reset()
     this.refined = false
     this.changedAt = performance.now()
@@ -660,11 +698,14 @@ export class Engine {
     this.helpers.visible = false
     const shadowPending = this.renderer.shadowMap.needsUpdate
     this.renderer.shadowMap.needsUpdate = false
+    const planarStrength = planarUniforms.planarStrength.value
+    planarUniforms.planarStrength.value = 0
     const prevTarget = this.renderer.getRenderTarget()
     pr.cam.position.copy(pos)
     pr.cam.update(this.renderer, this.scene)
     this.renderer.setRenderTarget(prevTarget)
     this.renderer.shadowMap.needsUpdate = shadowPending
+    planarUniforms.planarStrength.value = planarStrength
     this.helpers.visible = helpers
     this.scene.environmentIntensity = envI
     pr.env = this.pmrem().fromCubemap(pr.rt.texture, pr.env ?? undefined)
@@ -1134,7 +1175,7 @@ export class Engine {
       // queue another. Queued frames that each took a little longer than a refresh piled up in
       // the browser until it stalled for ~0.6 s to catch up (High and Ultra, mid-orbit).
       // (two frames may be in flight: the browser reports a frame done a refresh late)
-      if (this.movingBacklog() && performance.now() - this.fenceAt < 100) {
+      if (this.movingBacklog()) {
         this.needs = true
         this.live.skips++
         return
@@ -1181,20 +1222,25 @@ export class Engine {
   private stillStarted = false
   private fence: WebGLSync | null = null
   /** Mark the end of the work just issued; gpuIdle() says when the GPU has done it. */
-  /** Fences of the last moving frames, oldest first. */
-  private movingFences: WebGLSync[] = []
+  /** Fences of the last moving frames and when each was issued, oldest first. */
+  private movingFences: { sync: WebGLSync; at: number }[] = []
   private fenceMoving() {
     const gl = this.renderer.getContext() as WebGL2RenderingContext
     if (!gl.fenceSync) return
-    this.movingFences.push(gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!)
-    this.fenceAt = performance.now()
+    this.movingFences.push({ sync: gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!, at: performance.now() })
     gl.flush()
   }
-  /** More than two moving frames still unfinished on the GPU. */
+  /**
+   * Two moving frames are still unfinished on the GPU. (A limit by age instead, letting frames
+   * queue up to ~3 refreshes, gave 0.1-0.2 s stutters on a throttled GPU where this one gave a
+   * steady, lower frame rate; measured A/B.)
+   */
   private movingBacklog() {
     const gl = this.renderer.getContext() as WebGL2RenderingContext
     const f = this.movingFences
-    while (f.length && gl.getSyncParameter(f[0], gl.SYNC_STATUS) === gl.SIGNALED) gl.deleteSync(f.shift()!)
+    while (f.length && gl.getSyncParameter(f[0].sync, gl.SYNC_STATUS) === gl.SIGNALED) gl.deleteSync(f.shift()!.sync)
+    // never wait on a lost frame for long (a fence can stay unsignalled after context trouble)
+    while (f.length && performance.now() - f[0].at > 100) gl.deleteSync(f.shift()!.sync)
     return f.length >= 2
   }
   private fenceAt = 0
@@ -1212,11 +1258,15 @@ export class Engine {
    * GPU (a third of refreshes waited over the last 40 frames), ambient occlusion is left to the
    * still picture for the rest of the session at this preset. Still views always get it.
    */
-  private live = { ao: true, frames: 0, skips: 0 }
+  private live = { ao: true, refl: true, frames: 0, skips: 0 }
   private adaptLive() {
     const l = this.live
     if (++l.frames < 40) return
-    if (l.ao && QUALITY[this.quality].aoLive && l.skips / (l.frames + l.skips) > 0.33) l.ao = false
+    if (l.skips / (l.frames + l.skips) > 0.33) {
+      // live reflections go first (a whole extra scene render), then live AO
+      if (l.refl && QUALITY[this.quality].reflections === 'live') l.refl = false
+      else if (l.ao && QUALITY[this.quality].aoLive) l.ao = false
+    }
     l.frames = 0
     l.skips = 0
   }
@@ -1251,12 +1301,15 @@ export class Engine {
     }
     this.pipeline.reset()
     this.stillStarted = false
+    this.updatePlanar(false, this.lastInside || !!this.probe?.active)
     this.pipeline.render(this.scene, this.active, this.frameSettings(false))
   }
 
   /** One refinement sample: the camera shifted by a fraction of a pixel and the sun moved within its disc. */
   private renderSample(i: number) {
     this.syncContext()
+    if (!this.planarFresh) this.updatePlanar(true, this.cameraInside())
+    else planarUniforms.planarStrength.value = this.planarOn ? 1 : 0
     const restore = this.jitterSun(i)
     this.pipeline.render(this.scene, this.active, this.frameSettings(true), i === 0 ? [0, 0] : jitterAt(i))
     restore()
@@ -1520,6 +1573,7 @@ export class Engine {
     this.controls.dispose()
     this.mats.dispose()
     this.pipeline.dispose()
+    this.planar.dispose()
     this.renderer.dispose()
   }
 

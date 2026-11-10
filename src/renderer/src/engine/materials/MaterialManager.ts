@@ -3,6 +3,7 @@ import type { MaterialDef } from '../../core/model/types'
 import { libraryMaterial, materialSwatch } from '../../core/materials/library'
 import { texturePool, type TexMaps } from './textures'
 import { assetUrl } from '../../state/assets'
+import { addPlanar } from '../render/PlanarReflection'
 
 /**
  * Turns MaterialDefs (library recipes or uploaded images) into Three.js PBR materials.
@@ -203,6 +204,8 @@ export class MaterialManager {
     }
     m.name = def.id
     if (variant === 'house') m.clippingPlanes = this.clippingPlanes
+    // floors reflect the room (planar reflections, A13); glass and water keep their own look
+    if (variant === 'house' && !isGlass && !isWater) addPlanar(m)
     if (variant === 'double') m.side = THREE.DoubleSide
     return m
   }

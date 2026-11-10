@@ -121,7 +121,7 @@ All presets use soft PCF and anisotropy 16. Ultra at 2048 px textures took 20+ s
 - Installer rebuilt: `release/HomeForge-AI-Setup-1.0.0.exe`.
 
 ## Next (not done yet)
-- **P1:** one remaining hitch (about 0.5 s) at the start of an orbit on High and Ultra; screen-space reflections for High and Ultra.
+- **P1:** done 2026-11-10: the orbit hitch and floor reflections (see below).
 - **P2:**
   - Ground: large-scale variation in the grass, or a horizon treatment.
   - Better trees.
@@ -137,3 +137,25 @@ All presets use soft PCF and anisotropy 16. Ultra at 2048 px textures took 20+ s
   - Onboarding hints.
   - A shortcut list.
   - Empty states.
+
+### 2026-11-10: orbit hitch and floor reflections (P1 follow-up)
+
+**The hitch was a GPU queue stall, not a shader compile.**
+- Traces showed a 0.6 s gap mid-orbit with no JavaScript running. It repeated on every run at the same point.
+- Turning off frustum culling changed nothing. Removing either live AO or live bloom removed it.
+- **Cause:** each moving frame took slightly longer than a refresh, and the browser queued frames until it stalled.
+- **Fix:**
+  - At most two moving frames in flight (WebGL fences); otherwise wait a refresh.
+  - An adaptive live budget: if a third of refreshes wait, live reflections go first, then live AO. Still views keep everything.
+- **A/B tested and rejected:** an age-based limit (up to ~3 refreshes queued). It gave 0.1–0.2 s stutters on a throttled GPU, where the count limit gave a steady lower rate.
+- **Measuring caveat:** this machine throttles some of the time (dptf_helper, background load). Absolute fps varies by up to 2x, so compare builds back to back (pre-change build on port 5202).
+- **Result:** worst orbit frame ≤ 58 ms on every preset (was 0.2–0.77 s on High and Ultra).
+
+**Floor reflections** (`engine/render/PlanarReflection.ts`):
+- When the camera is indoors, the room is drawn mirrored in the floor plane under it, at half resolution with mipmaps.
+- Every house material shares one shader addition. It acts only on upward surfaces in that plane and replaces the environment radiance there, blurred by roughness² (polished marble 0.12–0.18 stays crisp) and faded out above roughness 0.7.
+- Presets: High in still views and pictures; Ultra also while moving (adaptive).
+- An oblique near plane clips everything below the floor.
+- While the reflection is drawn, the floors read a 1×1 stand-in texture, which avoids a texture feedback loop.
+- No GL errors; unit tests 53/53, dashboard e2e 42/42, showcase e2e 18/18.
+- Indoor orbit on this GPU: no hitches. Ultra's adaptive budget drops live reflections and live AO here; strong GPUs keep them.

@@ -287,3 +287,7 @@ Requested 2026-11-08: a production-grade upgrade with visualization first. The n
   - Validation errors: still none.
 
 **3D view status.** "Preparing 3D view…" shows until the first frame. A pill at the bottom right shows refinement progress and opens the quality presets, with what each one does.
+
+**Follow-up (2026-11-10):**
+- **No more mid-orbit hitch on High and Ultra.** At most two frames are now queued on the graphics card. When it can't keep up, live effects step down while moving (floor reflections first, then shading); still views keep everything.
+- **Floor reflections on High and Ultra.** Indoors, polished floors reflect the room exactly: furniture, door frames, windows. Reflections are sharp on polished marble, softer on honed tile, and absent on matte finishes. High shows them in still views and pictures; Ultra also while moving, when the graphics card allows.
